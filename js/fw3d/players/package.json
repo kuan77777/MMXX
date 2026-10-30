@@ -1,0 +1,6 @@
+{
+  "name": "fw3d-players",
+  "private": true,
+  "type": "module",
+  "description": "FW3D 球员外观子系统（纯数据层 + 参数化低模身体构造）"
+}

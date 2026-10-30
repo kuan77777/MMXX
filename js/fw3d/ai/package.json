@@ -1,0 +1,4 @@
+{
+  "type": "module",
+  "//": "仅用于让 Node 以 ESM 方式直接跑 js/fw3d/ai/*.js 的回归测试；浏览器通过 import 加载，不读取本文件。"
+}
