@@ -1,0 +1,635 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-30 06:25",
+  "source": "道具包/道路（Quaternius Modular Streets，CC0 1.0）",
+  "unit": 2,
+  "section": {
+    "asphaltTopY": 0.1,
+    "pavementTopY": 0.15,
+    "bottomY": -0.1,
+    "asphaltFraction": 0.3333333333333333
+  },
+  "structures": {
+    "straight": true,
+    "curve": true,
+    "junction3": true,
+    "junction4": true,
+    "deadend": true,
+    "empty": true,
+    "emptyWater": true,
+    "elevated": true,
+    "elevatedRamp": true,
+    "bridge": true,
+    "bridgeRamp": true,
+    "bridgeUnderpass": true,
+    "bridgeWater": true,
+    "bridgeWaterRamp": true,
+    "trafficLight": true,
+    "streetlight": true,
+    "signStop": true,
+    "signNoParking": true,
+    "signTriangle": true
+  },
+  "templates": [
+    {
+      "key": "Sign_NoParking",
+      "file": "Sign_NoParking.obj",
+      "tris": 244,
+      "size": [
+        0.0269,
+        0.5388,
+        0.1394
+      ],
+      "asphalt": {
+        "hex": "#2c2c2c",
+        "topY": 0.503,
+        "footprint": {
+          "x": [
+            0.007,
+            0.017
+          ],
+          "z": [
+            -0.017,
+            0.019
+          ]
+        }
+      }
+    },
+    {
+      "key": "Sign_Stop",
+      "file": "Sign_Stop.obj",
+      "tris": 300,
+      "size": [
+        0.0233,
+        0.5377,
+        0.1384
+      ],
+      "asphalt": {
+        "hex": "#989898",
+        "topY": 0.471,
+        "footprint": {
+          "x": [
+            -0.008,
+            0.006
+          ],
+          "z": [
+            -0.007,
+            0.007
+          ]
+        }
+      }
+    },
+    {
+      "key": "Sign_Triangle",
+      "file": "Sign_Triangle.obj",
+      "tris": 60,
+      "size": [
+        0.0345,
+        0.5344,
+        0.1549
+      ],
+      "asphalt": {
+        "hex": "#989898",
+        "topY": 0.471,
+        "footprint": {
+          "x": [
+            -0.008,
+            0.006
+          ],
+          "z": [
+            -0.007,
+            0.007
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_3Way",
+      "file": "Street_3Way.obj",
+      "tris": 672,
+      "size": [
+        2,
+        0.25,
+        2.0001
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.1,
+        "footprint": {
+          "x": [
+            -1,
+            0.334
+          ],
+          "z": [
+            -1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_3Way_2",
+      "file": "Street_3Way_2.obj",
+      "tris": 188,
+      "size": [
+        2,
+        0.25,
+        2.0001
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.1,
+        "footprint": {
+          "x": [
+            -1,
+            0.334
+          ],
+          "z": [
+            -1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_4Way",
+      "file": "Street_4Way.obj",
+      "tris": 896,
+      "size": [
+        2,
+        0.25,
+        2.0001
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.1,
+        "footprint": {
+          "x": [
+            -1,
+            1
+          ],
+          "z": [
+            -1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_4Way_2",
+      "file": "Street_4Way_2.obj",
+      "tris": 232,
+      "size": [
+        2,
+        0.25,
+        2.0001
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.1,
+        "footprint": {
+          "x": [
+            -1,
+            1
+          ],
+          "z": [
+            -1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Bridge",
+      "file": "Street_Bridge.obj",
+      "tris": 1412,
+      "size": [
+        2,
+        0.7659,
+        2
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.646,
+        "footprint": {
+          "x": [
+            -0.333,
+            0.333
+          ],
+          "z": [
+            -1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Bridge_Ramp",
+      "file": "Street_Bridge_Ramp.obj",
+      "tris": 1618,
+      "size": [
+        2,
+        0.7638,
+        2
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.644,
+        "footprint": {
+          "x": [
+            -1,
+            1
+          ],
+          "z": [
+            -0.333,
+            0.333
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Bridge_Underpass",
+      "file": "Street_Bridge_Underpass.obj",
+      "tris": 1084,
+      "size": [
+        2,
+        0.7659,
+        2
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.646,
+        "footprint": {
+          "x": [
+            -1,
+            1
+          ],
+          "z": [
+            -1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Bridge_Water",
+      "file": "Street_Bridge_Water.obj",
+      "tris": 1412,
+      "size": [
+        2,
+        0.7659,
+        2
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.646,
+        "footprint": {
+          "x": [
+            -0.333,
+            0.333
+          ],
+          "z": [
+            -1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Bridge_WaterRamp",
+      "file": "Street_Bridge_WaterRamp.obj",
+      "tris": 1104,
+      "size": [
+        2,
+        0.7638,
+        2.0002
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.644,
+        "footprint": {
+          "x": [
+            -0.333,
+            0.333
+          ],
+          "z": [
+            -1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Curve",
+      "file": "Street_Curve.obj",
+      "tris": 290,
+      "size": [
+        2,
+        0.25,
+        2
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.1,
+        "footprint": {
+          "x": [
+            -0.333,
+            1
+          ],
+          "z": [
+            -0.333,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Deadend",
+      "file": "Street_Deadend.obj",
+      "tris": 308,
+      "size": [
+        2,
+        0.25,
+        2
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.1,
+        "footprint": {
+          "x": [
+            -1,
+            0.357
+          ],
+          "z": [
+            -0.333,
+            0.333
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Elevated",
+      "file": "Street_Elevated.obj",
+      "tris": 394,
+      "size": [
+        2,
+        0.5798,
+        2
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.46,
+        "footprint": {
+          "x": [
+            -1,
+            1
+          ],
+          "z": [
+            -0.333,
+            0.333
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Elevated_Ramp",
+      "file": "Street_Elevated_Ramp.obj",
+      "tris": 364,
+      "size": [
+        2,
+        0.582,
+        2.0012
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.46,
+        "footprint": {
+          "x": [
+            -0.333,
+            0.333
+          ],
+          "z": [
+            -1.001,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Empty",
+      "file": "Street_Empty.obj",
+      "tris": 12,
+      "size": [
+        2,
+        0.25,
+        2
+      ],
+      "asphalt": {
+        "hex": "#a4a6ab",
+        "topY": 0.15,
+        "footprint": {
+          "x": [
+            -1,
+            1
+          ],
+          "z": [
+            -1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Empty_Water",
+      "file": "Street_Empty_Water.obj",
+      "tris": 44,
+      "size": [
+        2,
+        0.1209,
+        2.0002
+      ],
+      "asphalt": {
+        "hex": "#7badd1",
+        "topY": 0.021,
+        "footprint": {
+          "x": [
+            -1,
+            1
+          ],
+          "z": [
+            -1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "key": "Street_Straight",
+      "file": "Street_Straight.obj",
+      "tris": 356,
+      "size": [
+        2,
+        0.25,
+        2
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.1,
+        "footprint": {
+          "x": [
+            -1,
+            1
+          ],
+          "z": [
+            -0.333,
+            0.333
+          ]
+        }
+      }
+    },
+    {
+      "key": "Streetlight_Double",
+      "file": "Streetlight_Double.obj",
+      "tris": 2486,
+      "size": [
+        0.1317,
+        1.1003,
+        0.3157
+      ],
+      "asphalt": {
+        "hex": "#1f3b24",
+        "topY": 0.972,
+        "footprint": {
+          "x": [
+            -0.066,
+            0.066
+          ],
+          "z": [
+            -0.146,
+            0.146
+          ]
+        }
+      }
+    },
+    {
+      "key": "Streetlight_Single",
+      "file": "Streetlight_Single.obj",
+      "tris": 1028,
+      "size": [
+        0.1317,
+        1.0904,
+        0.1317
+      ],
+      "asphalt": {
+        "hex": "#1f3b24",
+        "topY": 1.024,
+        "footprint": {
+          "x": [
+            -0.066,
+            0.066
+          ],
+          "z": [
+            -0.066,
+            0.066
+          ]
+        }
+      }
+    },
+    {
+      "key": "Streetlight_Triple",
+      "file": "Streetlight_Triple.obj",
+      "tris": 2796,
+      "size": [
+        0.1317,
+        1.0904,
+        0.3157
+      ],
+      "asphalt": {
+        "hex": "#1f3b24",
+        "topY": 0.827,
+        "footprint": {
+          "x": [
+            -0.066,
+            0.066
+          ],
+          "z": [
+            -0.146,
+            0.146
+          ]
+        }
+      }
+    },
+    {
+      "key": "Streets_all",
+      "file": "Streets_all.obj",
+      "tris": 12562,
+      "size": [
+        11,
+        0.768,
+        11
+      ],
+      "asphalt": {
+        "hex": "#3a3434",
+        "topY": 0.1,
+        "footprint": {
+          "x": [
+            -7,
+            4
+          ],
+          "z": [
+            -7,
+            4
+          ]
+        }
+      }
+    },
+    {
+      "key": "TrafficLight",
+      "file": "TrafficLight.obj",
+      "tris": 352,
+      "size": [
+        0.123,
+        0.8709,
+        0.0896
+      ],
+      "asphalt": {
+        "hex": "#8a8a8a",
+        "topY": 0.871,
+        "footprint": {
+          "x": [
+            0.044,
+            0.088
+          ],
+          "z": [
+            -0.039,
+            0.039
+          ]
+        }
+      }
+    },
+    {
+      "key": "TrafficLight_2",
+      "file": "TrafficLight_2.obj",
+      "tris": 398,
+      "size": [
+        0.123,
+        1.1339,
+        0.6708
+      ],
+      "asphalt": {
+        "hex": "#8a8a8a",
+        "topY": 1.009,
+        "footprint": {
+          "x": [
+            0.044,
+            0.088
+          ],
+          "z": [
+            0.559,
+            0.637
+          ]
+        }
+      }
+    }
+  ]
+}

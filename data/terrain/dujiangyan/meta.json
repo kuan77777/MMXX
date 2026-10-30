@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "name": "dujiangyan",
+  "generatedAt": "2026-10-30 13:27",
+  "grid": {
+    "cols": 300,
+    "rows": 300,
+    "cellSize": 8,
+    "size": 2400
+  },
+  "geo": {
+    "centerLat": 30.995,
+    "centerLon": 103.599,
+    "west": 103.58642466152571,
+    "east": 103.6115753384743,
+    "south": 30.984144201194137,
+    "north": 31.005855798805865,
+    "metersPerDegLat": 110540,
+    "metersPerDegLon": 95424.86688954725
+  },
+  "elevation": {
+    "base": 733.45,
+    "min": 721.07,
+    "max": 931.35,
+    "unit": "dm"
+  },
+  "town": {
+    "rect": [
+      0,
+      0,
+      380,
+      380
+    ],
+    "feather": 70,
+    "base": 733.45,
+    "originalSigma": 3.6
+  },
+  "rivers": {
+    "count": 2,
+    "waterCells": 1486
+  },
+  "landcoverClasses": {
+    "10": "树本覆盖",
+    "12": "裸岩",
+    "20": "灌木",
+    "30": "草地",
+    "40": "耕地",
+    "50": "建成区",
+    "60": "裸地/稀疏",
+    "70": "冰雪",
+    "80": "永久水体",
+    "90": "湿地",
+    "95": "红树林",
+    "100": "苔藓地衣"
+  },
+  "files": {
+    "heights": "heights.bin",
+    "landcover": "landcover.bin",
+    "rivers": "rivers.json"
+  },
+  "sources": [
+    {
+      "id": "cop-dem-glo-30",
+      "name": "Copernicus DEM GLO-30",
+      "url": "https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM",
+      "used": "30m 数字表面模型 → 地形高度场",
+      "license": "© DLR e.V. 2010-2014 / © Airbus DS GmbH 2014-2018，由 EU/ESA 以 COPERNICUS 名义提供，允许免费使用与再分发（需署名）",
+      "attribution": "© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
+    },
+    {
+      "id": "esa-worldcover",
+      "name": "ESA WorldCover 10m 2021 v200",
+      "url": "https://esa-worldcover.org/en/data-access",
+      "used": "10m 土地覆盖 → 地面配色、植被/建成区分布",
+      "license": "CC BY 4.0",
+      "attribution": "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA"
+    },
+    {
+      "id": "hydrorivers",
+      "name": "HydroRIVERS v1.0 (HydroSHEDS)",
+      "url": "https://www.hydrosheds.org/products/hydrorivers",
+      "used": "河网折线 + 平均流量 → 河道/水面",
+      "license": "HydroSHEDS data license (CC BY 4.0 兼容), 需署名 WWF",
+      "attribution": "HydroRIVERS v1.0 — Lehner, B., Grill G. (2013). Global river hydrography and network routing. WWF / HydroSHEDS"
+    }
+  ],
+  "bake": {
+    "command": "node tools/bake-terrain.mjs --center 30.995,103.599 --size 2400 --cell 8",
+    "dem": "COP-DEM_N31E103.tif",
+    "wc": "WorldCover_N30E102.tif",
+    "rivers": "HydroRIVERS_as.zip",
+    "townSpreadSigma": 3.6,
+    "rockElevation": 2600,
+    "snowElevation": 3400
+  }
+}

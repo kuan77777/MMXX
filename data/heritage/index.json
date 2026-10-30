@@ -1,0 +1,121 @@
+{
+  "generatedAt": "2026-10-30T06:35:45.931Z",
+  "city": "都江堰",
+  "cityInfo": {
+    "tier": "T2",
+    "style": "chuanxi",
+    "allowedSets": [
+      "imperial",
+      "chuanxi"
+    ],
+    "allowsAncient": true,
+    "basis": "第三批；水利工程（本作地图就在这里）",
+    "verified": true
+  },
+  "rule": "古建只在历史城市出现；本图城市=都江堰（T2/川西），允许 imperial+chuanxi",
+  "textures": [
+    "assets/heritage/_textures/tile_stone_512_base.png",
+    "assets/heritage/_textures/tile_stone_512_normal.png",
+    "assets/heritage/_textures/tile_stone_512_ao.png",
+    "assets/heritage/_textures/tile_wood_512_base.png",
+    "assets/heritage/_textures/tile_wood_512_normal.png",
+    "assets/heritage/_textures/tile_wood_512_ao.png",
+    "assets/heritage/_textures/tile_roof_512_base.png",
+    "assets/heritage/_textures/tile_roof_512_normal.png",
+    "assets/heritage/_textures/tile_roof_512_ao.png",
+    "assets/heritage/_textures/tile_plaster_512_base.png",
+    "assets/heritage/_textures/tile_plaster_512_normal.png",
+    "assets/heritage/_textures/tile_plaster_512_ao.png",
+    "assets/heritage/_textures/tile_redbrick_512_base.png",
+    "assets/heritage/_textures/tile_redbrick_512_normal.png",
+    "assets/heritage/_textures/tile_redbrick_512_ao.png",
+    "assets/heritage/_textures/tile_brick_512_base.png",
+    "assets/heritage/_textures/tile_brick_512_normal.png",
+    "assets/heritage/_textures/tile_brick_512_ao.png"
+  ],
+  "entries": [
+    {
+      "key": "gate_tower",
+      "label": "城门楼（官式）",
+      "assetId": "CN-BLD-0023",
+      "variant": null,
+      "glb": "assets/heritage/gate_tower.glb",
+      "collision": "assets/heritage/gate_tower.collision.json",
+      "bytes": 368304,
+      "triangles": 8600,
+      "passable": false
+    },
+    {
+      "key": "hall",
+      "label": "大殿（官式）",
+      "assetId": "CN-BLD-0012",
+      "variant": null,
+      "glb": "assets/heritage/hall.glb",
+      "collision": "assets/heritage/hall.collision.json",
+      "bytes": 775688,
+      "triangles": 17316,
+      "passable": false
+    },
+    {
+      "key": "platform",
+      "label": "台基",
+      "assetId": "CN-BLD-0058",
+      "variant": null,
+      "glb": "assets/heritage/platform.glb",
+      "collision": "assets/heritage/platform.collision.json",
+      "bytes": 15244,
+      "triangles": 432,
+      "passable": false
+    },
+    {
+      "key": "steps",
+      "label": "台阶",
+      "assetId": "CN-BLD-0059",
+      "variant": null,
+      "glb": "assets/heritage/steps.glb",
+      "collision": "assets/heritage/steps.collision.json",
+      "bytes": 45708,
+      "triangles": 1380,
+      "passable": false
+    },
+    {
+      "key": "wall_chuanxi",
+      "label": "川西院墙",
+      "assetId": "CN-BLD-0041",
+      "variant": "chuanxi",
+      "glb": "assets/heritage/wall_chuanxi.glb",
+      "collision": "assets/heritage/wall_chuanxi.collision.json",
+      "bytes": 47528,
+      "triangles": 400,
+      "passable": false
+    },
+    {
+      "key": "moon_gate_chuanxi",
+      "label": "川西月亮门（已挖洞）",
+      "assetId": "CN-BLD-0040",
+      "variant": "chuanxi",
+      "glb": "assets/heritage/moon_gate_chuanxi.glb",
+      "collision": "assets/heritage/moon_gate_chuanxi.collision.json",
+      "bytes": 224180,
+      "triangles": 2240,
+      "passable": true
+    },
+    {
+      "key": "walkway_chuanxi",
+      "label": "川西穿斗连廊",
+      "assetId": "CN-BLD-0016",
+      "variant": "chuanxi",
+      "glb": "assets/heritage/walkway_chuanxi.glb",
+      "collision": "assets/heritage/walkway_chuanxi.collision.json",
+      "bytes": 305040,
+      "triangles": 3072,
+      "passable": false
+    }
+  ],
+  "block": {
+    "width": 46,
+    "depth": 46,
+    "wallSegments": 6,
+    "gateLength": 12
+  }
+}
