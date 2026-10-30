@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>asset audit — FBX 角色资产审计</title>
+  <style>
+    html, body { margin: 0; background: #1a2026; color: #e8eef4; overflow: hidden; }
+    #out {
+      position: fixed; left: 0; top: 0; z-index: 9; margin: 0; padding: 8px 10px;
+      max-width: 54%; max-height: 100%; overflow: auto; white-space: pre-wrap;
+      font: 11px/1.55 ui-monospace, monospace; background: #0b0f13cc; color: #cfe3d6;
+      pointer-events: none;
+    }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "./js/fw3d/vendor/three.module.min.js", "three/addons/": "./js/fw3d/vendor/addons/" } }
+  </script>
+</head>
+<body>
+  <pre id="out">载入中…</pre>
+  <script type="module">
+    // 角色资产审计页（独立于游戏）：按游戏里的方式加载 FBX、归一化、渲染，
+    // 把"实际测到的"骨骼/动画/尺寸/材质/包围盒打印出来，便于核对穿模、朝向与倒地姿态。
+    //
+    // 用法：
+    //   /asset-audit.html                          审计全部 CHARACTER_MODELS（并排）
+    //   /asset-audit.html?key=zombie               只看僵尸
+    //   /asset-audit.html?key=zombie&clip=walk     看某个动作的姿态
+    //   /asset-audit.html?key=zombie&die=1         看合成倒地姿态（用来核对尸体是否陷进地面）
+    //   /asset-audit.html?key=zombie&die=1&fall=1.36,0.16,0.28  覆盖倒地枢轴（调姿态参数用：rotX,rotZ,抬升）
+    //   /asset-audit.html?key=zombie&view=side     侧视 / top / lineup；hud=0 隐藏左侧报告
+    import * as THREE from 'three';
+    import { AssetLoader } from './game/assets/loader.js';
+    import { CharacterFactory } from './game/characters/fbx.js';
+    import { CHARACTER_MODELS } from './game/assets/manifest.js';
+
+    const params = new URLSearchParams(location.search);
+    const onlyKey = params.get('key');
+    const clipName = params.get('clip') || 'idle';
+    const view = params.get('view') || (onlyKey ? 'front' : 'lineup');
+    const wantDead = params.get('die') === '1';
+    const out = document.getElementById('out');
+    if (params.get('hud') === '0') out.style.display = 'none';
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(1);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x2a3038);
+    scene.fog = new THREE.Fog(0x2a3038, 18, 46);
+
+    const cam = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.05, 200);
+    const target = new THREE.Vector3(0, 0.95, 0);
+
+    scene.add(new THREE.HemisphereLight(0xdfe8f0, 0x4a5442, 2.1));
+    const sun = new THREE.DirectionalLight(0xfff2d8, 2.6);
+    sun.position.set(4, 9, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.camera.left = -14;
+    sun.shadow.camera.right = 14;
+    sun.shadow.camera.top = 14;
+    sun.shadow.camera.bottom = -14;
+    scene.add(sun);
+    const rim = new THREE.DirectionalLight(0x9fb8d0, 0.5);
+    rim.position.set(-5, 4, -7);
+    scene.add(rim);
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(80, 80),
+      new THREE.MeshLambertMaterial({ color: 0x44523f }),
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+    const grid = new THREE.GridHelper(20, 20, 0x66737a, 0x3a4449);
+    grid.position.y = 0.012;
+    scene.add(grid);
+
+    const lines = [];
+    const log = (s) => { lines.push(s); out.textContent = lines.join('\n'); };
+
+    // 用游戏里的加载路径（AssetLoader + CharacterFactory），不另写一套
+    const loader = new AssetLoader(THREE, { base: '' });
+    const factory = new CharacterFactory(THREE, loader, CHARACTER_MODELS);
+    await factory.preload();
+    const report = factory.report();
+    window.__AUDIT__ = report;
+
+    log(`=== 角色资产审计（${report.templates.length} 个模型，实测值）===`);
+    for (const t of report.templates) {
+      log(`\n[${t.key}] ${t.kind} · 实测高 ${t.measuredHeight} → 缩放 ${t.scale}（目标 ${t.targetHeight}m）`);
+      log(`  动画: ${t.clips.join(', ')}`);
+      log(`  合成补齐: ${t.synthetic.length ? t.synthetic.join(', ') : '（无）'}`);
+      log(`  缺失动作: ${t.missing.length ? t.missing.join(', ') : '（无）'}`);
+      log(`  回退: ${Object.entries(t.fallbacks).map(([k, v]) => `${k}←${v}`).join(', ') || '（无）'}`);
+      log(`  未使用片段: ${t.unmapped.length ? t.unmapped.join(', ') : '（无）'}`);
+      log(`  骨骼 ${t.bones} 根 / 缺关键骨骼: ${t.missingBones.length ? t.missingBones.join(',') : '（无）'}`);
+      log(`  外观: ${t.look}`);
+    }
+    if (report.warnings.length) {
+      log('\n警告:');
+      for (const w of report.warnings) log(`  ${w.key}: ${w.warning}`);
+    }
+    if (report.errors.length) {
+      log('\n错误:');
+      for (const e of report.errors) log(`  ${e.key}: ${e.error}`);
+    }
+
+    const keys = (onlyKey ? [onlyKey] : factory.availableKeys).filter((k) => factory.canUse(k));
+    const gap = keys.length > 1 ? 2.3 : 0;
+    const camDist = Number(params.get('dist') || (keys.length > 1 ? 8.5 : 4.4));
+    const created = [];
+
+    keys.forEach((key, i) => {
+      const model = factory.create(key);
+      if (!model) { log(`\n[${key}] create() 返回 null（缺关键骨骼，游戏里会回退程序化角色）`); return; }
+      model.group.position.set((i - (keys.length - 1) / 2) * gap, 0, 0);
+      scene.add(model.group);
+
+      const animator = new THREE.AnimationMixer(model.group);
+      const clip = model.clips[clipName] || model.clips.idle;
+      const action = animator.clipAction(clip);
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = true;
+      action.play();
+      if (wantDead) {
+        action.stop();
+        const death = animator.clipAction(model.clips.death);
+        death.setLoop(THREE.LoopOnce, 1);
+        death.clampWhenFinished = true;
+        death.reset().play();
+        animator.update(1.4);
+        // ?fall=rotX,rotZ,y —— 调倒地姿态用：直接覆盖枢轴变换（不写回代码）
+        const fall = (params.get('fall') || '').split(',').map(Number);
+        if (fall.length === 3 && fall.every(Number.isFinite)) {
+          const pivot = model.group.getObjectByName('charPivot');
+          if (pivot) {
+            pivot.rotation.set(fall[0], 0, fall[1]);
+            pivot.position.set(0, fall[2], 0);
+          }
+          model.group.updateMatrixWorld(true);
+        }
+      } else {
+        animator.update(0.3);
+      }
+      model.group.updateMatrixWorld(true);
+      created.push({ key, model, animator });
+
+      const box = new THREE.Box3().setFromObject(model.group);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const mats = [];
+      model.group.traverse((o) => {
+        if (!o.isMesh && !o.isSkinnedMesh) return;
+        for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+          mats.push(`${m.name || '(无名)'}:${m.color ? m.color.getHexString() : '?'}${m.map ? '+map' : ''}${m.vertexColors ? '+顶点色' : ''}`);
+        }
+      });
+      log(`\n[${key}] ${wantDead ? '倒地姿态' : `动作 ${clip ? clip.name : '(缺失)'}`} · 高 ${model.height.toFixed(2)}m / 眼高 ${model.eyeHeight.toFixed(2)}m`);
+      log(`  包围盒 min=(${box.min.toArray().map((n) => n.toFixed(2)).join(', ')}) max=(${box.max.toArray().map((n) => n.toFixed(2)).join(', ')})`);
+      log(`  尺寸 ${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)} m（站高 ${model.height}m）`);
+      log(`  材质: ${mats.join(' | ')}`);
+      log(`  骨骼映射: ${Object.keys(model.bones).sort().join(', ')}`);
+      const color = model.mesh && model.mesh.geometry.getAttribute('color');
+      if (color) log(`  顶点色: 有（${color.count} 顶点）`);
+    });
+
+    // 朝向参照：+Z 黄色箭头 = 游戏里的"正前方"（yaw=0）
+    scene.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0.02, 0), 1.7, 0xffcc44, 0.35, 0.2));
+
+    if (view === 'side') cam.position.set(camDist, 1.35, 0.001);
+    else if (view === 'top') cam.position.set(0.001, camDist + 2.5, 0.001);
+    else if (view === 'lineup') cam.position.set(0, 2.3, camDist);
+    else cam.position.set(camDist * 0.25, 1.5, camDist);
+    cam.lookAt(view === 'lineup' ? new THREE.Vector3(0, 0.9, 0) : target);
+
+    log(`\n视图=${view} 动作=${wantDead ? '死亡' : clipName} 距离=${camDist}m（+Z 黄色箭头=正前方）`);
+    window.__AUDIT_READY__ = true;
+
+    function loop() {
+      requestAnimationFrame(loop);
+      if (!wantDead) for (const c of created) c.animator.update(1 / 60);
+      renderer.render(scene, cam);
+    }
+    loop();
+  </script>
+</body>
+</html>

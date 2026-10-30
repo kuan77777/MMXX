@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEAD WORLD · 低多边形开放世界僵尸生存</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="description" content="DEAD WORLD —— Three.js 低多边形开放世界僵尸生存：真实地形、OSM 路网、四季与天气、车辆、背包与建造。">
+<style>
+  :root {
+    --bg: #0b0f13;
+    --panel: #121922;
+    --panel-2: #161f2a;
+    --line: #24313e;
+    --fg: #e6edf3;
+    --dim: #93a4b3;
+    --accent: #7ee787;
+    --accent-2: #58a6ff;
+    --warn: #f0b429;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(1100px 520px at 12% -8%, rgba(88,166,255,.16), transparent 62%),
+      radial-gradient(900px 480px at 92% 4%, rgba(126,231,135,.12), transparent 60%),
+      var(--bg);
+    color: var(--fg);
+    font: 14px/1.65 "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 56px 24px 72px; }
+
+  header.hero { display: flex; flex-wrap: wrap; gap: 28px; align-items: center; margin-bottom: 44px; }
+  .hero-text { flex: 1 1 420px; min-width: 300px; }
+  .kicker {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid rgba(126,231,135,.35);
+    background: rgba(126,231,135,.08); border-radius: 999px; padding: 4px 12px; margin-bottom: 16px;
+  }
+  h1 {
+    margin: 0 0 10px; font-size: clamp(34px, 6vw, 54px); line-height: 1.05; letter-spacing: -.02em;
+  }
+  h1 small { display: block; font-size: 15px; font-weight: 400; letter-spacing: .04em; color: var(--dim); margin-top: 12px; }
+  .lede { color: var(--dim); margin: 0 0 22px; max-width: 46em; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    text-decoration: none; font-weight: 600; font-size: 14px;
+    padding: 11px 20px; border-radius: 10px; border: 1px solid transparent;
+    transition: transform .12s ease, background .12s ease, border-color .12s ease;
+  }
+  .btn-primary { background: linear-gradient(180deg, #2ea043, #238636); color: #fff; box-shadow: 0 6px 18px rgba(46,160,67,.28); }
+  .btn-primary:hover { transform: translateY(-1px); background: linear-gradient(180deg, #35b04b, #2ea043); }
+  .btn-ghost { border-color: var(--line); background: var(--panel); color: var(--fg); }
+  .btn-ghost:hover { border-color: #3b4b5c; background: var(--panel-2); }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 14px; }
+  .hint kbd {
+    font: inherit; font-size: 11px; padding: 1px 6px; border-radius: 5px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--fg);
+  }
+
+  .shot {
+    flex: 1 1 380px; min-width: 280px; border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--line); background: var(--panel);
+    box-shadow: 0 24px 60px rgba(0,0,0,.45);
+  }
+  .shot img { display: block; width: 100%; height: auto; }
+
+  h2 { font-size: 13px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); margin: 0 0 14px; font-weight: 600; }
+  section { margin-bottom: 42px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .card {
+    display: block; text-decoration: none; color: inherit;
+    background: linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,0));
+    border: 1px solid var(--line); border-radius: 12px; padding: 16px 16px 14px;
+    transition: border-color .12s ease, transform .12s ease, background .12s ease;
+  }
+  .card:hover { border-color: #3d5670; transform: translateY(-2px); background: var(--panel); }
+  .card b { display: block; font-size: 15px; margin-bottom: 4px; }
+  .card span { display: block; color: var(--dim); font-size: 12.5px; line-height: 1.55; }
+  .tag {
+    display: inline-block; font-size: 10px; letter-spacing: .04em; padding: 1px 7px; border-radius: 999px;
+    margin-left: 8px; vertical-align: 2px; border: 1px solid rgba(240,180,41,.4);
+    background: rgba(240,180,41,.1); color: var(--warn); font-weight: 600;
+  }
+
+  .facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .fact { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: rgba(255,255,255,.015); }
+  .fact b { display: block; font-size: 20px; letter-spacing: -.01em; }
+  .fact span { color: var(--dim); font-size: 12px; }
+
+  footer {
+    border-top: 1px solid var(--line); padding-top: 20px; margin-top: 8px;
+    color: var(--dim); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: space-between;
+  }
+  footer a { color: var(--accent-2); }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+  .shots img { display: block; width: 100%; border-radius: 10px; border: 1px solid var(--line); }
+  @media (max-width: 640px) { .wrap { padding: 34px 18px 56px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="hero-text">
+      <div class="kicker">Three.js · 零构建 · 浏览器直接玩</div>
+      <h1>DEAD WORLD
+        <small>低多边形开放世界僵尸生存 · 都江堰 2400 m × 2400 m</small>
+      </h1>
+      <p class="lede">
+        用真实地理数据铺出来的镇子：30 m 高程、10 m 土地覆盖、OSM 真实路网，
+        配上四季与九种天气、7 台可开的车、12 款可捏的体型、背包/搜刮/建造，还有跟着镜头转的小地图与
+        可缩放的大地图（感染者/道路/建筑一目了然）。
+        不联网、不装插件，一个静态目录就是整个游戏。
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="game.html">▶ 开始游戏</a>
+        <a class="btn btn-ghost" href="creator.html">角色创建</a>
+        <a class="btn btn-ghost" href="male-templates.html">12 款体型</a>
+      </div>
+      <p class="hint">
+        需要桌面浏览器（键盘 + 鼠标）· 建议 Chrome / Edge · 进游戏后点画面锁定指针，
+        按 <kbd>Esc</kbd> 暂停或解锁，<kbd>WASD</kbd> 移动、<kbd>E</kbd> 交互、<kbd>V</kbd> 切换第一/第三人称。
+      </p>
+    </div>
+    <div class="shot">
+      <img src="shots/screenshot-game.png" alt="游戏画面：街道、车辆与僵尸" onerror="this.remove()">
+    </div>
+  </header>
+
+  <section>
+    <h2>试玩与调试页</h2>
+    <div class="grid">
+      <a class="card" href="game.html">
+        <b>开始游戏</b>
+        <span>主入口。真实地形 + 真实路网 + 四季天气 + 车辆 + 僵尸 AI。带 <code>?selftest=1</code> 自动验收。</span>
+      </a>
+      <a class="card" href="creator.html">
+        <b>角色创建</b>
+        <span>捏脸/体型/发型/胡子/肤色，选 16 支阵营，球衣号码与姓名上背。</span>
+      </a>
+      <a class="card" href="male-templates.html">
+        <b>体型模板画廊</b>
+        <span>12 款男性体型模板，正面 / 45° / 侧面 / 背面，随手随机组合。</span>
+      </a>
+      <a class="card" href="asset-audit.html">
+        <b>角色资产审计</b>
+        <span>直接加载真实 FBX，打印骨骼/动画/尺寸/包围盒，可看僵尸站·走·咬·倒地。</span>
+      </a>
+      <a class="card" href="prop-gallery.html">
+        <b>道具画廊</b>
+        <span>食物 / 枪械 / 医疗 / 家具 / 车辆等模型的缩略图一览。</span>
+      </a>
+      <a class="card" href="rig-debug.html">
+        <b>骨骼调试</b>
+        <span>程序化角色的骨骼层级与动画片段单独调试。</span>
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <h2>数值表</h2>
+    <div class="grid">
+      <a class="card" href="food-sheet.html">
+        <b>食物功效表</b>
+        <span>热量 / 饱食 / 水分 / buff / 中毒与吃撑惩罚。</span>
+      </a>
+      <a class="card" href="gun-sheet.html">
+        <b>枪械功效表</b>
+        <span>伤害衰减 / 穿透 / 流血 / 硬直 / 噪音 / 散热。</span>
+      </a>
+      <a class="card" href="med-sheet.html">
+        <b>医疗功效表</b>
+        <span>伤情分级 / 治疗量 / 耐受 / 打断与惩罚。</span>
+      </a>
+      <a class="card" href="kit-swap-debug.html">
+        <b>球衣图集调试</b>
+        <span>16 队配色 + 号码图集的生成结果。</span>
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <h2>这堆数字能跑多快</h2>
+    <div class="facts">
+      <div class="fact"><b>2400 × 2400 m</b><span>真实地形（Copernicus DEM 30 m）</span></div>
+      <div class="fact"><b>128 段 / 33 km</b><span>OSM 真实路网（含桥与隧道）</span></div>
+      <div class="fact"><b>9 种天气 × 4 季</b><span>状态机驱动 AI 感知与体力</span></div>
+      <div class="fact"><b>18 套件 / 全部通过</b><span>Node 测试（无浏览器也能跑）</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>游戏内实拍</h2>
+    <div class="shots">
+      <img src="shots/screenshot-game.png" alt="镇内街道与车辆" loading="lazy">
+      <img src="shots/screenshot-run.png" alt="奔跑中的角色" loading="lazy">
+      <img src="shots/screenshot-zombie-ingame.png" alt="僵尸近身" loading="lazy">
+      <img src="shots/map-hud.png" alt="右下角小地图：附近感染者与车辆" loading="lazy">
+      <img src="shots/map-overview.png" alt="按 M 打开的大地图：地形/道路/建筑与标记" loading="lazy">
+    </div>
+  </section>
+
+  <section>
+    <h2>可选：原始足球 2D 项目</h2>
+    <div class="grid">
+      <a class="card" href="football-2d.html">
+        <b>足球数据 2D 应用<span class="tag">历史遗留</span></b>
+        <span>僵尸游戏的剧情数据来自这个旧项目（690 俱乐部 / 18759 球员 / 49 联赛），入口保留只为对照与调试。</span>
+      </a>
+    </div>
+  </section>
+
+  <footer>
+    <span>DEAD WORLD · 纯静态站点，无构建步骤 · 源码托管在仓库根目录</span>
+    <span>three.js MIT · Quaternius CC0 · OSM ODbL · 见仓库 CREDITS.md</span>
+  </footer>
+
+</div>
+</body>
+</html>

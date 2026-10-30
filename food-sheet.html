@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>食物功效 · 设计表与试吃台</title>
+  <link rel="stylesheet" href="game/ui/ui.css">
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #10151b; color: #cfe0ee; font: 12.5px/1.6 ui-monospace, Consolas, monospace; }
+    body { padding: 18px 20px 40px; }
+    h1 { font-size: 15px; margin: 0 0 4px; color: #f0d68a; }
+    h2 { font-size: 12px; margin: 22px 0 8px; color: #7fc9e8; letter-spacing: .04em; }
+    .sub { color: #7b8c9c; font-size: 11px; margin-bottom: 10px; }
+    .layout { display: grid; grid-template-columns: minmax(560px, 1fr) 380px; gap: 22px; align-items: start; }
+    table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+    th, td { border-bottom: 1px solid #1d2833; padding: 4px 6px; text-align: left; white-space: nowrap; }
+    th { color: #93a8bb; font-weight: 500; font-size: 10.5px; }
+    tbody tr { cursor: pointer; }
+    tbody tr:hover { background: rgba(224,163,74,.1); }
+    tbody tr.on { background: rgba(224,163,74,.18); }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pos { color: #8fd08f; } .neg { color: #e28d7e; } .dim { color: #7b8c9c; }
+    .risk { color: #e28d7e; }
+    .buff { color: #9fd0ea; }
+    .panel { background: rgba(255,255,255,.03); border: 1px solid #26313d; border-radius: 6px; padding: 12px 14px; position: sticky; top: 16px; }
+    .bar-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 11px; color: #9fb4c6; }
+    .bar { flex: 1; height: 9px; background: rgba(0,0,0,.5); border: 1px solid #26313d; border-radius: 3px; overflow: hidden; }
+    .bar > i { display: block; height: 100%; width: 50%; transition: width .25s linear; }
+    .bar.hp > i { background: linear-gradient(90deg,#a03a34,#c9554a); }
+    .bar.hunger > i { background: linear-gradient(90deg,#8a5f2a,#c08a3e); }
+    .bar.thirst > i { background: linear-gradient(90deg,#2f6a94,#4a9cc8); }
+    .bar.stamina > i { background: linear-gradient(90deg,#4a7f46,#74b36c); }
+    #buffs { display: flex; flex-wrap: wrap; gap: 4px; min-height: 22px; margin: 10px 0 4px; }
+    #log { margin-top: 10px; font-size: 11px; color: #cfe0ee; background: rgba(0,0,0,.35); border: 1px solid #26313d; border-radius: 4px; padding: 8px 10px; min-height: 74px; white-space: pre-wrap; }
+    #buffTable td { white-space: normal; }
+    button { font: inherit; background: #22303c; color: #dceaf5; border: 1px solid #33455a; border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+    button:hover { background: #2c3d4c; }
+  </style>
+</head>
+<body>
+  <h1>食物功效 · 设计表与试吃台</h1>
+  <div class="sub">数据来自 <code>game/items/items.js</code>，逻辑来自 <code>game/items/consumables.js</code>（与游戏内完全同一份代码）。点左侧任意一行试吃。</div>
+
+  <div class="layout">
+    <div>
+      <h2>食物 / 饮水功效表</h2>
+      <table id="foodTable">
+        <thead>
+          <tr><th>物品</th><th class="num">重量</th><th class="num">饱食</th><th class="num">水分</th><th class="num">体力</th><th class="num">生命</th><th class="num">饱食/kg</th><th>持续 buff</th><th>风险</th><th class="num">折合</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <h2>Buff 定义</h2>
+      <table id="buffTable">
+        <thead><tr><th>名称</th><th class="num">时长</th><th>效果</th><th>类型</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2 style="margin-top:0">试吃台（模拟玩家）</h2>
+      <div class="bar-row"><span style="width:34px">HP</span><span class="bar hp"><i id="bar-hp"></i></span><b id="v-hp" class="num">70</b></div>
+      <div class="bar-row"><span style="width:34px">饥饿</span><span class="bar hunger"><i id="bar-hunger"></i></span><b id="v-hunger" class="num">40</b></div>
+      <div class="bar-row"><span style="width:34px">口渴</span><span class="bar thirst"><i id="bar-thirst"></i></span><b id="v-thirst" class="num">40</b></div>
+      <div class="bar-row"><span style="width:34px">体力</span><span class="bar stamina"><i id="bar-stamina"></i></span><b id="v-stamina" class="num">30</b></div>
+      <div id="buffs"></div>
+      <button id="reset">重置</button>
+      <div id="log">点左边的食物开始。</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { ITEMS } from './game/items/items.js';
+    import { BUFF_DEFS, BuffList, applyConsume, describeEffects, fmtDur, foodEffectConfig } from './game/items/consumables.js';
+    import { DEFAULT_CONFIG } from './game/config/game-config.js';
+
+    const cfg = { player: { foodEffects: DEFAULT_CONFIG.player.foodEffects } };
+    const HUNGER_RATE = DEFAULT_CONFIG.player.hungerRate;
+    const THIRST_RATE = DEFAULT_CONFIG.player.thirstRate;
+    const minOfHunger = (v) => (v / HUNGER_RATE / 60);
+    const minOfThirst = (v) => (v / THIRST_RATE / 60);
+    const sign = (v) => (v >= 0 ? `+${v}` : String(v));
+
+    const FOOD_IDS = Object.keys(ITEMS).filter((id) => ITEMS[id].kind === 'food' || ITEMS[id].kind === 'drink');
+
+    // ── 功效表
+    const tbody = document.querySelector('#foodTable tbody');
+    tbody.innerHTML = FOOD_IDS.map((id) => {
+      const d = ITEMS[id];
+      const e = d.effects || {};
+      const density = e.hunger ? Math.round(e.hunger / d.weight) : '—';
+      const buffs = e.buff ? (Array.isArray(e.buff) ? e.buff : [e.buff]).map((b) => `${BUFF_DEFS[b].name} ${fmtDur(BUFF_DEFS[b].dur)}`).join('、') : '';
+      const risk = e.risk && e.risk.poison ? `⚠ ${Math.round(e.risk.poison * 100)}% 食物中毒` : '';
+      const minutes = d.kind === 'drink'
+        ? `${minOfThirst(e.thirst || 0).toFixed(1)} 分（水分）`
+        : `${minOfHunger(e.hunger || 0).toFixed(1)} 分`;
+      const cell = (v, cls = '') => `<td class="num ${v > 0 ? 'pos' : v < 0 ? 'neg' : 'dim'} ${cls}">${v ? sign(v) : '—'}</td>`;
+      return `<tr data-id="${id}">
+        <td>${d.name} <span class="dim">${id.replace('i_', '')}</span></td>
+        <td class="num">${d.weight.toFixed(2)}</td>
+        ${cell(e.hunger || 0)}${cell(e.thirst || 0)}${cell(e.stamina || 0)}${cell(e.health || 0)}
+        <td class="num ${density === '—' ? 'dim' : ''}">${density}</td>
+        <td class="buff">${buffs || '—'}</td>
+        <td class="risk">${risk || '—'}</td>
+        <td class="num dim">${minutes}</td>
+      </tr>`;
+    }).join('');
+
+    // ── buff 表
+    document.querySelector('#buffTable tbody').innerHTML = Object.values(BUFF_DEFS).map((b) => {
+      const effect = b.note || Object.entries(b.mods || {}).map(([k, v]) => `${k} ${v > 1 || k.endsWith('Add') ? '+' : '×'}${v}`).join('，');
+      return `<tr><td class="${b.bad ? 'neg' : 'buff'}">${b.name}</td><td class="num">${fmtDur(b.dur)}</td><td>${effect}</td><td class="${b.bad ? 'neg' : 'dim'}">${b.bad ? '坏' : '好'}</td></tr>`;
+    }).join('');
+
+    // ── 试吃台
+    const player = {
+      hunger: 40, maxHunger: 100, thirst: 40, maxThirst: 100,
+      stamina: 30, maxStamina: 100, health: 70, maxHealth: 100,
+      buffs: new BuffList(),
+      cfg,
+      heal(v) { this.health = Math.min(this.maxHealth, this.health + Math.max(0, v)); },
+    };
+    const el = (id) => document.getElementById(id);
+    const log = el('log');
+    const logs = [];
+    let last = performance.now();
+
+    function renderState() {
+      el('bar-hp').style.width = `${(player.health / player.maxHealth) * 100}%`;
+      el('v-hp').textContent = Math.round(player.health);
+      el('bar-hunger').style.width = `${(player.hunger / player.maxHunger) * 100}%`;
+      el('v-hunger').textContent = Math.round(player.hunger);
+      el('bar-thirst').style.width = `${(player.thirst / player.maxThirst) * 100}%`;
+      el('v-thirst').textContent = Math.round(player.thirst);
+      el('bar-stamina').style.width = `${(player.stamina / player.maxStamina) * 100}%`;
+      el('v-stamina').textContent = Math.round(player.stamina);
+      el('buffs').innerHTML = player.buffs.list().map((b) => {
+        const s = Math.max(0, Math.ceil(b.left));
+        return `<span class="dd-buff${b.bad ? ' dd-buff-bad' : ''}" title="${b.note}">${b.name} <b>${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}</b></span>`;
+      }).join('');
+    }
+
+    function tick(now) {
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      player.buffs.tick(dt);
+      // 让玩家像在游戏里一样持续消耗（方便观察 buff 对速率的影响）
+      const m = player.buffs.mods();
+      player.hunger = Math.max(0, player.hunger - HUNGER_RATE * m.hungerMul * dt * 6);
+      player.thirst = Math.max(0, player.thirst - THIRST_RATE * (m.thirstMul || 1) * dt * 6);
+      const dot = player.buffs.dot();
+      if (dot > 0) player.health = Math.max(0, player.health - dot * dt);
+      else player.stamina = Math.min(player.maxStamina, player.stamina + 12 * m.staminaRegenMul * dt);
+      renderState();
+      requestAnimationFrame(tick);
+    }
+
+    tbody.addEventListener('click', (e) => {
+      const tr = e.target.closest('tr[data-id]');
+      if (!tr) return;
+      const id = tr.getAttribute('data-id');
+      for (const r of tbody.querySelectorAll('tr')) r.classList.toggle('on', r === tr);
+      const plan = applyConsume(player, ITEMS[id]);
+      logs.unshift(plan.message);
+      log.textContent = logs.slice(0, 5).join('\n');
+      renderState();
+      window.__FOOD_SHEET_LAST__ = { itemId: id, message: plan.message, plan };
+    });
+
+    el('reset').addEventListener('click', () => {
+      player.hunger = 40; player.thirst = 40; player.stamina = 30; player.health = 70;
+      player.buffs.clear();
+      logs.length = 0;
+      log.textContent = '已重置。点左边的食物开始。';
+      renderState();
+    });
+
+    renderState();
+    requestAnimationFrame(tick);
+
+    // ?demo=1：自动试吃一份罐头 + 一块巧克力，方便截图/验收（不传就该由人点）
+    if (new URLSearchParams(location.search).get('demo') === '1') {
+      for (const id of ['i_food_can', 'i_food_chocolate']) {
+        const tr = tbody.querySelector(`tr[data-id="${id}"]`);
+        if (tr) tr.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }
+    }
+
+    window.__FOOD_SHEET__ = {
+      items: FOOD_IDS.map((id) => ({ id, name: ITEMS[id].name, weight: ITEMS[id].weight, effects: ITEMS[id].effects, desc: describeEffects(ITEMS[id]) })),
+      buffs: BUFF_DEFS,
+      rates: { hungerRate: HUNGER_RATE, thirstRate: THIRST_RATE },
+      ready: true,
+    };
+  </script>
+</body>
+</html>

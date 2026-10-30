@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FOOTBALL WORLD — 足球世界</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "three": "./js/fw3d/vendor/three.module.min.js", "three/addons/": "./js/fw3d/vendor/addons/" } }
+  </script>
+
+</head>
+<body>
+  <div id="app"></div>
+  <!-- 亚洲数据包（中超 / J1 / K联赛 / 沙特联）：必须在 world.js 之前加载 -->
+  <script src="data/asia/packs.js"></script>
+  <script src="world.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/store.js"></script>
+  <script src="app.js"></script>
+  <!-- 球员外观（2D 头像 / 资料摘要）：ESM 模块，在 2D 首屏之后执行；失败也不影响游戏 -->
+  <script type="module">
+    (async () => {
+      try {
+        const [A, L, V] = await Promise.all([
+          import('./js/fw3d/players/appearance.js'),
+          import('./js/fw3d/players/real-likeness.js'),
+          import('./js/fw3d/players/avatar.js'),
+        ]);
+        const of = (record) => {
+          if (!record) return null;
+          const rec = Object.assign({}, record);
+          if (rec.id == null) return null;
+          rec.id = String(rec.id);
+          // 不显式传 overrides：生成器会按 realPlayerId（其次 id）自动查真实资料表。
+          // 注意：这里**不能**写成 appearanceFor(rec, {}) —— 传空对象会把"自动查真实资料"这条路径关掉，
+          // 结果 3D 模型用真实资料、2D 头像不用，同一个球员两张脸。
+          return A.appearanceFor(rec);
+        };
+        // 头像球衣色 = 所在俱乐部的**主场**主色，来源与 3D 场景完全一致
+        // （`arena.js` 的 kitCtx.shirts.home 也是 club.colors.primary）。
+        // 为什么要放在这一层：2D 有四个入口调 FWAvatar.svg（资料页大图、快照卡、列表头像槽、外观页预览），
+        // 而"首屏渲染时 ESM 还没加载完"的那条路径是下面 fillAvatars() 补的 —— 那一路不经过 app.js，
+        // 只有把默认值收在桥接层，才能保证所有入口画出同一件球衣。
+        // 修过的 bug：以前不传 jersey 就用 avatar.js 的兜底墨绿 0x2f5e42，
+        // 于是上海申花（蓝）、甘冈（青）这些队的球员头像全穿同一件墨绿。
+        const clubJersey = (record) => {
+          try {
+            const st = window.FW && FW.state;
+            const cl = st && st.clubs && record && record.clubId != null ? st.clubs[record.clubId] : null;
+            const cc = cl && cl.colors && cl.colors.primary;
+            if (!cc) return null;
+            const n = parseInt(String(cc).replace('#', ''), 16);
+            return Number.isFinite(n) ? n : null;
+          } catch (e) { return null; }
+        };
+        window.FWAvatar = {
+          of,
+          svg: (record, opts) => {
+            const a = record && record.v ? record : of(record);
+            if (!a) return '';
+            const o = Object.assign({}, opts || {});
+            if (o.jersey == null) { const j = clubJersey(record); if (j != null) o.jersey = j; }
+            return V.avatarSvg(a, o);
+          },
+          rows: (record) => { const a = record && record.v ? record : of(record); return a ? V.appearanceRows(a) : { rows: [], tags: [] }; },
+          // 外观自定义面板要用到的选项表（与 3D 建模共用同一份数据，避免两套命名）
+          lists: {
+            hairStyles: A.HAIR_STYLES, hairColors: A.HAIR_COLORS,
+            skinTones: A.SKIN_TONES, facialHair: A.FACIAL_HAIR,
+          },
+          // 暴露出去，供 2D 页面在"换俱乐部/转会"后确认取色逻辑（也方便自检）
+          jerseyFor: clubJersey,
+        };
+        // app.js 是同步脚本、本模块是 deferred → 首屏渲染时头像模块可能还没就绪。
+        // 因此：①先触发一次重渲染；②再把页面里所有 .fw-avatar-slot 占位符逐个填上（多次尝试，覆盖异步导航）。
+        const fillAvatars = () => {
+          try {
+            document.querySelectorAll('.fw-avatar-slot').forEach((el) => {
+              if (el.getAttribute('data-fw-filled')) return;
+              const pid = el.getAttribute('data-fw-pid');
+              const st = window.FW && FW.state;
+              const p = (st && ((st.players && pid && st.players[pid]) || (st.player && st.player.id === pid ? st.player : null))) || null;
+              if (!p) return;
+              const svg = window.FWAvatar.svg(p, { size: 104 });
+              if (svg) { el.innerHTML = svg; el.setAttribute('data-fw-filled', '1'); }
+            });
+          } catch (e) {}
+        };
+        // 强制重画：清掉"已填充"标记再补一遍。
+        // 转会换队 / 改外观之后必须走这条 —— 否则 fillAvatars() 会跳过已有的槽位，
+        // 头像会一直停在旧俱乐部的球衣颜色上（这是"改了外观但头像没变"那类反馈的根因）。
+        window.FWAvatar.refill = () => {
+          try { document.querySelectorAll('.fw-avatar-slot').forEach((el) => { el.removeAttribute('data-fw-filled'); el.innerHTML = ''; }); } catch (e) {}
+          fillAvatars();
+          return true;
+        };
+        try { if (window.__FWAPP && window.__FWAPP.render) window.__FWAPP.render(); } catch (e) {}
+        fillAvatars();
+        setTimeout(fillAvatars, 120);
+        setTimeout(fillAvatars, 600);
+        setInterval(fillAvatars, 2000);
+      } catch (e) { console.warn('[FWAvatar] 初始化失败（2D 头像不可用）', e && e.message); }
+    })();
+  </script>
+  <script src="js/fw3d/boot.js"></script>
+</body>
+</html>

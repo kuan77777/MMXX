@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>医疗功效 · 伤情与治疗</title>
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #10151b; color: #cfe0ee; font: 12.5px/1.6 ui-monospace, Consolas, monospace; }
+    body { padding: 18px 20px 40px; }
+    h1 { font-size: 15px; margin: 0 0 4px; color: #f0d68a; }
+    h2 { font-size: 12px; margin: 22px 0 8px; color: #7fc9e8; letter-spacing: .04em; }
+    .sub { color: #7b8c9c; font-size: 11px; margin-bottom: 10px; }
+    .grid { display: grid; grid-template-columns: 1fr 400px; gap: 22px; align-items: start; }
+    table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+    th, td { border-bottom: 1px solid #1d2833; padding: 4px 6px; text-align: left; white-space: nowrap; }
+    th { color: #93a8bb; font-weight: 500; font-size: 10.5px; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .dim { color: #7b8c9c; } .bad { color: #e28d7e; } .good { color: #8fd08f; } .hi { color: #f0d68a; }
+    .panel { background: rgba(255,255,255,.03); border: 1px solid #26313d; border-radius: 6px; padding: 12px 14px; position: sticky; top: 16px; }
+    .row { display: flex; align-items: center; gap: 8px; margin: 5px 0; font-size: 11px; color: #9fb4c6; }
+    .bar { flex: 1; height: 9px; background: rgba(0,0,0,.5); border: 1px solid #26313d; border-radius: 3px; overflow: hidden; }
+    .bar > i { display: block; height: 100%; width: 0%; transition: width .15s linear; }
+    .bar.hp > i { background: linear-gradient(90deg,#a03a34,#c9554a); }
+    .bar.bleeding > i { background: linear-gradient(90deg,#8a1f1f,#d64545); }
+    .bar.infection > i { background: linear-gradient(90deg,#3f5a1f,#7fbf3f); }
+    .bar.fracture > i { background: linear-gradient(90deg,#5a4a1f,#c9a03f); }
+    .bar.pain > i { background: linear-gradient(90deg,#4a2a6a,#9a6ad0); }
+    #chips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 22px; margin: 8px 0; }
+    .dd-buff, #chips > span { font-size: 10px; padding: 2px 6px; border-radius: 3px; color: #cfe6f5; background: rgba(24,38,52,.82); border: 1px solid rgba(120,170,200,.45); }
+    .wound { color: #ffd3cd; background: rgba(58,22,20,.86); border-color: rgba(200,90,80,.6); }
+    button { font: inherit; background: #22303c; color: #dceaf5; border: 1px solid #33455a; border-radius: 4px; padding: 3px 9px; cursor: pointer; margin: 2px 0; }
+    button:hover { background: #2c3d4c; }
+    button:disabled { opacity: .45; cursor: default; }
+    #log { margin-top: 8px; font-size: 11px; background: rgba(0,0,0,.35); border: 1px solid #26313d; border-radius: 4px; padding: 8px 10px; min-height: 90px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>医疗功效 · 伤情与治疗</h1>
+  <div class="sub">
+    数据来自 <code>game/items/items.js</code>，伤情与治疗逻辑来自 <code>game/items/medical.js</code>（与游戏内同一份代码）。
+    下面是模拟器：点按钮用药，观察伤情与生命怎么变。
+  </div>
+
+  <div class="grid">
+    <div>
+      <h2>伤情</h2>
+      <table id="woundTable">
+        <thead><tr><th>伤情</th><th>掉血</th><th>自然恢复</th><th>惩罚</th><th>来源</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <h2>医疗品</h2>
+      <table id="medTable">
+        <thead><tr><th>物品</th><th class="num">重量</th><th>治疗</th><th class="num">耗时</th><th>说明</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2 style="margin-top:0">模拟器</h2>
+      <div class="row"><span style="width:40px">HP</span><span class="bar hp"><i id="bar-hp"></i></span><b id="v-hp" class="num">55</b></div>
+      <div class="row"><span style="width:40px">流血</span><span class="bar bleeding"><i id="bar-bleeding"></i></span><b id="v-bleeding" class="num">0%</b></div>
+      <div class="row"><span style="width:40px">感染</span><span class="bar infection"><i id="bar-infection"></i></span><b id="v-infection" class="num">0%</b></div>
+      <div class="row"><span style="width:40px">骨折</span><span class="bar fracture"><i id="bar-fracture"></i></span><b id="v-fracture" class="num">0%</b></div>
+      <div class="row"><span style="width:40px">疼痛</span><span class="bar pain"><i id="bar-pain"></i></span><b id="v-pain" class="num">0%</b></div>
+      <div id="chips"></div>
+      <div id="medButtons"></div>
+      <button id="reset">重置（给一个"被咬了一口"的伤员）</button>
+      <div id="log">点上面的药开始治疗。</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { ITEMS } from './game/items/items.js';
+    import {
+      MedicalState, WOUND_INFO, WOUND_KINDS, WOUND_RULES, TOLERANCE,
+      treatOf, planTreatment, applyTreatment, describeTreat,
+    } from './game/items/medical.js';
+
+    const MED_IDS = Object.keys(ITEMS).filter((id) => ITEMS[id].kind === 'medical');
+
+    // ── 伤情表
+    const woundRows = {
+      bleeding: { drain: (s) => `${WOUND_INFO.bleeding.hpDrain(s).toFixed(2)} HP/s（满级）`, recover: '自然凝血 0.02/s', penalty: '—（会把伤口养成感染）', from: '咬伤 / 枪伤 / 坠落' },
+      infection: { drain: (s) => `${WOUND_INFO.infection.hpDrain(s).toFixed(2)} HP/s（满级）`, recover: '无伤口时自愈 0.01/s', penalty: '饥渴 +25~35%、体力恢复 -40%', from: '开放伤口未处理' },
+      fracture: { drain: () => '0', recover: '几乎不能自愈（0.002/s）', penalty: '移速 -30%、跳跃更费体力', from: '高处坠落 / 车祸' },
+      pain: { drain: () => '0', recover: '自然消退 0.05/s', penalty: '准星扩散 +80%、体力恢复 -15%', from: '任何伤害' },
+    };
+    document.querySelector('#woundTable tbody').innerHTML = WOUND_KINDS.map((k) => {
+      const info = WOUND_INFO[k];
+      const r = woundRows[k];
+      return `<tr><td class="bad">${info.name}</td><td class="num">${r.drain(1)}</td><td class="dim">${r.recover}</td><td>${r.penalty}</td><td class="dim">${r.from}</td></tr>`;
+    }).join('');
+
+    // ── 医疗品表
+    document.querySelector('#medTable tbody').innerHTML = MED_IDS.map((id) => {
+      const d = ITEMS[id];
+      const t = treatOf(d);
+      const desc = describeTreat(d);
+      return `<tr>
+        <td>${d.name} <span class="dim">${id.replace('i_med_', '')}</span></td>
+        <td class="num">${d.weight.toFixed(2)}</td>
+        <td class="hi">${desc.text}</td>
+        <td class="num">${t.duration ? t.duration.toFixed(1) + 's' : '即时'}</td>
+        <td class="dim">${desc.note || ''}</td>
+      </tr>`;
+    }).join('');
+
+    // ── 模拟器
+    const player = {
+      health: 55, maxHealth: 100, stamina: 20, maxStamina: 100,
+      med: new MedicalState(),
+      heal(v) { this.health = Math.min(this.maxHealth, this.health + v); },
+    };
+    const el = (id) => document.getElementById(id);
+    const log = el('log');
+    const logs = [];
+    let treating = null;
+    let last = performance.now();
+
+    function reset() {
+      player.health = 55;
+      player.med = new MedicalState();
+      player.med.add('bleeding', 0.55);
+      player.med.add('infection', 0.25);
+      player.med.add('pain', 0.5);
+      treating = null;
+      logs.length = 0;
+      log.textContent = '伤员：被咬了一口（流血 55% / 感染 25% / 疼痛 50%）。';
+      render();
+    }
+
+    function render() {
+      const m = player.med;
+      el('bar-hp').style.width = `${(player.health / player.maxHealth) * 100}%`;
+      el('v-hp').textContent = Math.round(player.health);
+      for (const k of WOUND_KINDS) {
+        el(`bar-${k}`).style.width = `${(m[k] || 0) * 100}%`;
+        el(`v-${k}`).textContent = `${Math.round((m[k] || 0) * 100)}%`;
+      }
+      const chips = m.list().map((c) => `<span class="wound">${c.icon} ${c.name} ${Math.round(c.severity * 100)}%</span>`);
+      if (treating) chips.push(`<span>✚ ${treating.name} ${Math.round((treating.elapsed / treating.duration) * 100)}%</span>`);
+      if (m.tolerance > 0.01) chips.push(`<span class="wound">耐受 ${Math.round(m.tolerance * 100)}%</span>`);
+      el('chips').innerHTML = chips.join('');
+      // 按钮：没有对应伤情的药置灰，帮玩家理解"对症下药"
+      for (const btn of el('medButtons').querySelectorAll('button')) {
+        const id = btn.getAttribute('data-id');
+        const t = treatOf(ITEMS[id]);
+        const useful = (t.stopBleed && m.bleeding > 0.01) || (t.infection && m.infection > 0.01)
+          || (t.fracture && m.fracture > 0.01) || (t.pain && m.pain > 0.01) || (t.healHp > 0 && player.health < player.maxHealth);
+        btn.disabled = !!treating || !useful;
+      }
+    }
+
+    el('medButtons').innerHTML = MED_IDS.map((id) =>
+      `<button data-id="${id}">用 ${ITEMS[id].name}（${treatOf(ITEMS[id]).duration ? treatOf(ITEMS[id]).duration.toFixed(1) + 's' : '即时'}）</button>`).join('  ');
+
+    el('medButtons').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-id]');
+      if (!btn || treating) return;
+      const id = btn.getAttribute('data-id');
+      const def = ITEMS[id];
+      const t = treatOf(def);
+      if (t.duration > 0) {
+        treating = { def, elapsed: 0, duration: t.duration, name: def.name };
+        logs.unshift(`开始用 ${def.name}（${t.duration.toFixed(1)}s）…`);
+      } else {
+        finish(def, 1);
+      }
+      render();
+    });
+
+    function finish(def, progress) {
+      const plan = planTreatment({ def, med: player.med, stats: { health: player.health, maxHealth: player.maxHealth }, progress });
+      applyTreatment(plan, player.med, player);
+      logs.unshift(`用了 ${def.name}：${plan.messages.join('，') || '没有效果'}`);
+      log.textContent = logs.slice(0, 6).join('\n');
+    }
+
+    el('reset').addEventListener('click', reset);
+
+    function tick(now) {
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const t = player.med.tick(dt);
+      if (t.hpDrain > 0) player.health = Math.max(0, player.health - t.hpDrain * dt);
+      if (treating) {
+        treating.elapsed += dt;
+        if (treating.elapsed >= treating.duration) {
+          const def = treating.def;
+          treating = null;
+          finish(def, 1);
+        }
+      }
+      render();
+      requestAnimationFrame(tick);
+    }
+
+    reset();
+    requestAnimationFrame(tick);
+
+    window.__MED_SHEET__ = {
+      ready: true,
+      meds: MED_IDS.map((id) => ({ id, name: ITEMS[id].name, treat: treatOf(ITEMS[id]), text: describeTreat(ITEMS[id]) })),
+      wounds: WOUND_INFO,
+      rules: WOUND_RULES,
+      tolerance: TOLERANCE,
+    };
+  </script>
+</body>
+</html>

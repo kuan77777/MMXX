@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>枪械功效 · 画像与曲线</title>
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #10151b; color: #cfe0ee; font: 12.5px/1.6 ui-monospace, Consolas, monospace; }
+    body { padding: 18px 20px 40px; }
+    h1 { font-size: 15px; margin: 0 0 4px; color: #f0d68a; }
+    h2 { font-size: 12px; margin: 22px 0 8px; color: #7fc9e8; letter-spacing: .04em; }
+    .sub { color: #7b8c9c; font-size: 11px; margin-bottom: 10px; }
+    .grid { display: grid; grid-template-columns: 1fr 420px; gap: 22px; align-items: start; }
+    table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+    th, td { border-bottom: 1px solid #1d2833; padding: 4px 6px; text-align: left; white-space: nowrap; }
+    th { color: #93a8bb; font-weight: 500; font-size: 10.5px; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .dim { color: #7b8c9c; } .hi { color: #f0d68a; } .good { color: #8fd08f; } .warn { color: #e28d7e; }
+    .panel { background: rgba(255,255,255,.03); border: 1px solid #26313d; border-radius: 6px; padding: 12px 14px; }
+    canvas { display: block; width: 100%; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; margin-top: 8px; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+    .ttk td, .ttk th { text-align: center; }
+    .note { color: #8fa6b8; font-size: 11px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>枪械功效 · 画像与曲线</h1>
+  <div class="sub">
+    数据来自 <code>game/combat/weapons.js</code>，结算来自 <code>game/combat/ballistics.js</code>（与游戏内同一份代码）。
+    伤害按"躯干命中、无衰减以外的加成"计算。
+  </div>
+
+  <div class="grid">
+    <div>
+      <h2>单发伤害随距离衰减</h2>
+      <div class="panel">
+        <canvas id="chart" width="880" height="360"></canvas>
+        <div class="legend" id="legend"></div>
+        <div class="note">虚线 = 霰弹枪的 9 弹丸总潜伤（全部命中时）；实线 = 单发/单弹丸。</div>
+      </div>
+
+      <h2>武器画像</h2>
+      <table id="profileTable">
+        <thead>
+          <tr>
+            <th>武器</th><th>类型</th><th class="num">伤害</th><th class="num">射速</th><th class="num">弹匣</th>
+            <th class="num">射程</th><th class="num">穿透</th><th>流血</th><th class="num">硬直</th><th class="num">噪音</th>
+            <th class="num">重量</th><th>定位</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div>
+      <h2>击杀效率（感染者 100 HP）</h2>
+      <div class="panel">
+        <table class="ttk" id="ttkTable">
+          <thead><tr><th>武器</th><th>5m</th><th>20m</th><th>50m</th><th>150m</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="note" id="ttkNote"></div>
+      </div>
+
+      <h2>连发散热（扩散倍率）</h2>
+      <div class="panel">
+        <canvas id="heatChart" width="400" height="180"></canvas>
+        <div class="note">横轴 = 连续射击发数；纵轴 = 有效扩散 / 基础扩散。</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { WEAPONS } from './game/combat/weapons.js';
+    import { falloffMul, effectiveSpread, rollHit, HeatModel, describeTrait, partMul } from './game/combat/ballistics.js';
+    import { DEFAULT_CONFIG } from './game/config/game-config.js';
+
+    const HEAD = DEFAULT_CONFIG.combat.headshotMultiplier;
+    const FIREARMS = Object.values(WEAPONS).filter((w) => w.type !== 'melee');
+    const COLOR = {
+      w_pistol_9mm: '#8fb6cf', w_smg_9mm: '#7ed0a0', w_rifle_556: '#f0d68a',
+      w_shotgun_12g: '#e28d7e', w_sniper_762: '#b6a0ff',
+    };
+
+    // ── 画像表
+    const prof = document.querySelector('#profileTable tbody');
+    prof.innerHTML = FIREARMS.map((w) => {
+      const dps = (w.damage * (w.pellets || 1) * w.rpm) / 60;
+      const bleed = w.bleed ? `${Math.round(w.bleed.chance * 100)}% / ${w.bleed.dps}×${w.bleed.dur}s` : '—';
+      return `<tr>
+        <td>${w.name} <span class="dim">${w.id.replace('w_', '')}</span></td>
+        <td class="dim">${w.type}</td>
+        <td class="num">${w.damage}${(w.pellets || 1) > 1 ? `×${w.pellets}` : ''}</td>
+        <td class="num">${w.rpm}</td>
+        <td class="num">${w.magSize}</td>
+        <td class="num">${w.range}m</td>
+        <td class="num">${w.penetration}</td>
+        <td>${bleed}</td>
+        <td class="num">${w.stagger.toFixed(2)}s</td>
+        <td class="num ${w.noise >= 5 ? 'warn' : ''}">${w.noise}</td>
+        <td class="num">${w.weight}kg</td>
+        <td class="hi">${describeTrait(w)}</td>
+      </tr>`;
+    }).join('');
+
+    // ── 伤害-距离曲线
+    const cv = document.getElementById('chart');
+    const ctx = cv.getContext('2d');
+    const PAD = { l: 52, r: 14, t: 16, b: 34 };
+    const W = cv.width, H = cv.height;
+    const maxD = 240;
+    const maxY = Math.max(...FIREARMS.map((w) => w.damage * (w.pellets || 1))) * 1.08;
+
+    function frame(c, w, h, pad, xLabel, yLabel, xMax, yMax) {
+      c.clearRect(0, 0, w, h);
+      c.fillStyle = '#0d1319';
+      c.fillRect(0, 0, w, h);
+      c.strokeStyle = '#22303c';
+      c.lineWidth = 1;
+      for (let i = 0; i <= 4; i += 1) {
+        const y = pad.t + ((h - pad.t - pad.b) * i) / 4;
+        c.beginPath(); c.moveTo(pad.l, y); c.lineTo(w - pad.r, y); c.stroke();
+        c.fillStyle = '#7b8c9c';
+        c.font = '11px ui-monospace, monospace';
+        c.textAlign = 'right';
+        c.fillText(String(Math.round(yMax * (1 - i / 4))), pad.l - 6, y + 4);
+      }
+      for (let i = 0; i <= 6; i += 1) {
+        const x = pad.l + ((w - pad.l - pad.r) * i) / 6;
+        c.beginPath(); c.moveTo(x, pad.t); c.lineTo(x, h - pad.b); c.strokeStyle = '#18232d'; c.stroke();
+        c.fillStyle = '#7b8c9c';
+        c.textAlign = 'center';
+        c.fillText(String(Math.round((xMax * i) / 6)), x, h - pad.b + 16);
+      }
+      c.fillStyle = '#93a8bb';
+      c.textAlign = 'center';
+      c.fillText(xLabel, (pad.l + w - pad.r) / 2, h - 4);
+    }
+    const toXY = (d, v, xMax, yMax) => [
+      PAD.l + ((W - PAD.l - PAD.r) * Math.min(d, xMax)) / xMax,
+      H - PAD.b - ((H - PAD.t - PAD.b) * v) / yMax,
+    ];
+
+    frame(ctx, W, H, PAD, '距离 (米)', '单发伤害', maxD, maxY);
+    for (const w of FIREARMS) {
+      const color = COLOR[w.id] || '#fff';
+      // 虚线的"总潜伤"（仅多弹丸）
+      if ((w.pellets || 1) > 1) {
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        for (let d = 0; d <= maxD; d += 2) {
+          const v = w.damage * w.pellets * falloffMul(w, d);
+          const [x, y] = toXY(d, v, maxD, maxY);
+          d === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = color + '77'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.beginPath();
+      for (let d = 0; d <= maxD; d += 2) {
+        const v = w.damage * falloffMul(w, d);
+        const [x, y] = toXY(d, v, maxD, maxY);
+        d === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+      // 射程处打点
+      const [ex, ey] = toXY(w.range, w.damage * w.falloffMin, maxD, maxY);
+      ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
+    }
+    document.getElementById('legend').innerHTML = FIREARMS.map((w) =>
+      `<span><i style="background:${COLOR[w.id]}"></i>${w.name}（射程 ${w.range}m）</span>`).join('');
+
+    // ── 击杀效率（躯干，含流血期望值不计）
+    const ZOMBIE_HP = 100;
+    const shotsToKill = (w, dist) => {
+      const per = w.damage * falloffMul(w, dist);
+      if (per <= 0) return Infinity;
+      const pellets = w.pellets || 1;
+      const perShot = per * pellets;
+      return Math.ceil(ZOMBIE_HP / perShot);
+    };
+    const ttk = document.querySelector('#ttkTable tbody');
+    ttk.innerHTML = FIREARMS.map((w) => {
+      const cells = [5, 20, 50, 150].map((d) => {
+        const n = shotsToKill(w, d);
+        if (d > w.range) return '<td class="dim">—</td>';
+        const sec = n <= 1 ? 0 : (n - 1) * (60 / w.rpm);
+        return `<td>${n} 发<span class="dim"> / ${sec.toFixed(1)}s</span></td>`;
+      }).join('');
+      return `<tr><td style="text-align:left">${w.name}</td>${cells}</tr>`;
+    }).join('');
+    document.getElementById('ttkNote').textContent = '发数 = 命中躯干所需弹数；秒数 = 第一发起算到致死（不含换弹）。';
+
+    // ── 散热曲线
+    const hc = document.getElementById('heatChart');
+    const hctx = hc.getContext('2d');
+    const HW = hc.width, HH = hc.height;
+    const HPAD = { l: 34, r: 10, t: 12, b: 26 };
+    const shots = 40;
+    const maxHeatMul = 1 + Math.max(...FIREARMS.map((w) => w.heatSpread));
+    frame(hctx, HW, HH, HPAD, '连发发数', '扩散倍率', shots, maxHeatMul);
+    for (const w of FIREARMS) {
+      const h = new HeatModel(w);
+      const color = COLOR[w.id] || '#fff';
+      hctx.beginPath();
+      for (let i = 0; i <= shots; i += 1) {
+        if (i > 0) h.add(1);
+        const base = w.spread;
+        const mul = effectiveSpread(w, h.value) / base;
+        const x = HPAD.l + ((HW - HPAD.l - HPAD.r) * i) / shots;
+        const y = HH - HPAD.b - ((HH - HPAD.t - HPAD.b) * (mul - 1)) / (maxHeatMul - 1);
+        i === 0 ? hctx.moveTo(x, y) : hctx.lineTo(x, y);
+      }
+      hctx.strokeStyle = color; hctx.lineWidth = 1.6; hctx.stroke();
+    }
+
+    window.__GUN_SHEET__ = {
+      ready: true,
+      weapons: FIREARMS.map((w) => ({
+        id: w.id, name: w.name, type: w.type, damage: w.damage, pellets: w.pellets || 1,
+        rpm: w.rpm, range: w.range, penetration: w.penetration, bleed: w.bleed,
+        stagger: w.stagger, noise: w.noise, weight: w.weight,
+        dmgNear: Math.round(w.damage * falloffMul(w, 0) * 10) / 10,
+        dmgFar: Math.round(w.damage * falloffMul(w, w.range) * 10) / 10,
+        ttk: [5, 20, 50, 150].map((d) => (d > w.range ? null : shotsToKill(w, d))),
+        trait: describeTrait(w),
+      })),
+      headMul: HEAD,
+      partMul: { head: partMul('head'), legs: partMul('legs') },
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>kit swap debug</title>
+  <style>html,body{margin:0;background:#1a1e22;overflow:hidden}#info{position:fixed;left:8px;top:8px;color:#dfe6ee;font:12px/1.6 ui-monospace,monospace;background:#0009;padding:8px 10px;white-space:pre-wrap;z-index:9}</style>
+  <script type="importmap">
+    { "imports": { "three": "./js/fw3d/vendor/three.module.min.js", "three/addons/": "./js/fw3d/vendor/addons/" } }
+  </script>
+</head>
+<body>
+<div id="info">loading…</div>
+<script type="module">
+  // B′ 验证页：?team=<slug>&view=front|back&who=male|female
+  import * as THREE from 'three';
+  import { CSL_KITS, CSL_BY_SLUG } from './game/appearance/csl-kits.js';
+  import { buildKitAtlas } from './game/appearance/kit-atlas.js';
+  import { applyKitTexture } from './game/appearance/shirt-uv.js';
+  import { makeKit } from './game/appearance/kit.js';
+  import { AssetLoader } from './game/assets/loader.js';
+  import { CharacterFactory } from './game/characters/fbx.js';
+  import { CHARACTER_MODELS } from './game/assets/manifest.js';
+
+  const p = new URLSearchParams(location.search);
+  const team = CSL_BY_SLUG.get(p.get('team') || 'beijing_guoan') || CSL_KITS[0];
+  const view = p.get('view') || 'front';
+  const who = p.get('who') || 'male';
+  const info = document.getElementById('info');
+  const lines = [];
+  const say = (s) => { lines.push(s); info.textContent = lines.join('\n'); };
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setPixelRatio(1);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x2a3038);
+  const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.05, 100);
+  scene.add(new THREE.HemisphereLight(0xdfe8f0, 0x404a3a, 1.25));
+  const sun = new THREE.DirectionalLight(0xfff0d0, 1.9);
+  sun.position.set(3, 7, 6); sun.castShadow = true; scene.add(sun);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), new THREE.MeshLambertMaterial({ color: 0x3f4a44 }));
+  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+
+  const loadImage = (url) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('img fail ' + url)); i.src = url; });
+
+  try {
+    const kit = makeKit({ clubId: team.clubId, playerId: 'P1', primary: team.color, secondary: team.secondary, name: team.teamZh.slice(0, 4), number: 9 });
+    const atlas = buildKitAtlas({ front: null, kit, size: 1024 });
+    say(`${team.teamZh} (${team.clubId})  主色=${atlas.primary}`);
+
+    const loader = new AssetLoader(THREE, { base: '' });
+    const factory = new CharacterFactory(THREE, loader, CHARACTER_MODELS);
+    await factory.preload();
+    const key = who === 'female' ? 'female_casual' : 'male_shirt';
+    const model = factory.create(key);
+    scene.add(model.group);
+    say(`模型=${key}  材质=${(Array.isArray(model.mesh.material) ? model.mesh.material : [model.mesh.material]).map((m) => m && m.name).join(',')}`);
+
+    const res = applyKitTexture(THREE, model, atlas.canvas);
+    say('applyKitTexture → ' + JSON.stringify(res.ok ? res.stats : { reason: res.reason }));
+    window.__KIT__ = res.ok ? { ok: true, stats: res.stats, team: team.teamZh } : { ok: false, reason: res.reason };
+
+    if (model.clips.idle) {
+      const mixer = new THREE.AnimationMixer(model.group);
+      mixer.clipAction(model.clips.idle).play();
+      mixer.update(0.4);
+    }
+    // 人物朝向：正面视角相机在 +Z，背面在 -Z
+    const z = view === 'back' ? -3.0 : 3.0;
+    cam.position.set(0.55, 1.25, z);
+    cam.lookAt(0, 0.98, 0);
+
+    let f = 0;
+    const loop = () => {
+      requestAnimationFrame(loop);
+      renderer.render(scene, cam);
+      f += 1;
+      if (f === 3) document.title = res.ok ? 'KIT-OK' : 'KIT-FAIL';
+    };
+    loop();
+  } catch (e) {
+    say('FAIL: ' + (e && e.stack ? e.stack : e));
+    window.__KIT__ = { ok: false, error: String(e && e.stack ? e.stack : e) };
+    document.title = 'KIT-FAIL';
+  }
+</script>
+</body>
+</html>

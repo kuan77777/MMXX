@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>rig debug</title>
+  <style>html,body{margin:0;background:#20262c;overflow:hidden}</style>
+  <script type="importmap">
+    { "imports": { "three": "./js/fw3d/vendor/three.module.min.js", "three/addons/": "./js/fw3d/vendor/addons/" } }
+  </script>
+</head>
+<body>
+  <script type="module">
+    // 临时调试页：单独渲染一个程序化骨骼角色，用来确认 rig/动画/球衣贴图是否正常。
+    import * as THREE from 'three';
+    import { buildHumanoid } from './game/characters/rig.js';
+    import { buildClips } from './game/characters/clips.js';
+    import { Animator } from './game/characters/animator.js';
+    import { makeKit, createKitTexture } from './game/appearance/kit.js';
+
+    const params = new URLSearchParams(location.search);
+    const clipName = params.get('clip') || 'idle';
+    const camDist = Number(params.get('dist') || 4.2);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(1);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x2a3038);
+    const cam = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.05, 100);
+    cam.position.set(camDist * 0.55, 1.55, camDist);
+    cam.lookAt(0, 0.95, 0);
+
+    scene.add(new THREE.HemisphereLight(0xdfe8f0, 0x404a3a, 1.1));
+    const sun = new THREE.DirectionalLight(0xfff0d0, 1.9);
+    sun.position.set(4, 8, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    scene.add(sun);
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(30, 30),
+      new THREE.MeshLambertMaterial({ color: 0x4a6b46 }),
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const kit = makeKit({ clubId: 'C14', playerId: 'P1', primary: '#c8102e', secondary: '#ffffff', number: 9, name: '测试' });
+    const tex = createKitTexture(kit, THREE);
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: tex || null });
+    const rig = buildHumanoid(THREE, {
+      appearance: { height: 178, skin_tone: 0xc9a27b, hair_color: 0x20180f, hair_style: 'crop', body: { shoulderWidth: 1.05, chestDepth: 1, waist: 1, hipWidth: 1, thigh: 1, calf: 1, armLength: 1, legProportion: 1, neck: 1, muscle: 1.05 } },
+      kit,
+      material: mat,
+    });
+    scene.add(rig.group);
+    rig.group.position.set(0, 0, 0);
+
+    const clips = buildClips(THREE);
+    const animator = new Animator(THREE, rig.group, clips);
+    animator.setBase(clipName, 0);
+    animator.update(0.2);
+
+    let t = 0;
+    let frames = 0;
+    function loop() {
+      requestAnimationFrame(loop);
+      const dt = 1 / 60;
+      t += dt;
+      if (clipName === 'walk' || clipName === 'run' || clipName === 'sprint') animator.setBase(clipName, 0);
+      animator.update(dt);
+      renderer.render(scene, cam);
+      frames += 1;
+    }
+    loop();
+
+    // 立即诊断（headless 下 rAF 只跑几帧，不能等 30 帧）
+    function diagnose(label) {
+      try {
+        scene.updateMatrixWorld(true);
+        const boneYs = rig.boneList.map((b) => `${b.name}=${b.getWorldPosition(new THREE.Vector3()).y.toFixed(2)}`);
+        const geo = rig.mesh.geometry;
+        const pos = geo.getAttribute('position');
+        const si = geo.getAttribute('skinIndex');
+        const sw = geo.getAttribute('skinWeight');
+        const bindM = rig.mesh.bindMatrix;
+        const bindMI = rig.mesh.bindMatrixInverse;
+        const tmp = new THREE.Vector3();
+        const acc = new THREE.Vector3();
+        const boneMats = [];
+        for (let i = 0; i < rig.boneList.length; i += 1) {
+          boneMats.push(new THREE.Matrix4().multiplyMatrices(rig.boneList[i].matrixWorld, rig.mesh.skeleton.boneInverses[i]));
+        }
+        let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity;
+        let badWeight = 0;
+        for (let v = 0; v < pos.count; v += 1) {
+          const wsum = sw.getX(v) + sw.getY(v) + sw.getZ(v) + sw.getW(v);
+          if (Math.abs(wsum - 1) > 0.01) badWeight += 1;
+          tmp.fromBufferAttribute(pos, v).applyMatrix4(bindM);
+          acc.set(0, 0, 0);
+          for (let k = 0; k < 4; k += 1) {
+            const w = k === 0 ? sw.getX(v) : k === 1 ? sw.getY(v) : k === 2 ? sw.getZ(v) : sw.getW(v);
+            if (!w) continue;
+            const bi = k === 0 ? si.getX(v) : k === 1 ? si.getY(v) : k === 2 ? si.getZ(v) : si.getW(v);
+            const m = boneMats[bi];
+            if (!m) continue;
+            const p2 = tmp.clone().applyMatrix4(m);
+            acc.addScaledVector(p2, w);
+          }
+          acc.applyMatrix4(bindMI).applyMatrix4(rig.mesh.matrixWorld);
+          minY = Math.min(minY, acc.y); maxY = Math.max(maxY, acc.y);
+          minX = Math.min(minX, acc.x); maxX = Math.max(maxX, acc.x);
+        }
+        const info = {
+          label,
+          bones: rig.boneList.length,
+          boneYs,
+          bindM: bindM.elements.map((n) => +n.toFixed(2)),
+          skinnedY: [+minY.toFixed(2), +maxY.toFixed(2)],
+          skinnedX: [+minX.toFixed(2), +maxX.toFixed(2)],
+          badWeight,
+          verts: pos.count,
+          groupScale: rig.group.scale.x,
+          mapOk: !!(mat.map && mat.map.image),
+          state: animator.state,
+        };
+        window.__RIG__ = info;
+        const pre = document.createElement('pre');
+        pre.id = 'riginfo';
+        pre.style.cssText = 'position:fixed;left:0;top:0;color:#fff;font:12px monospace;background:#0008;white-space:pre-wrap;z-index:9;max-width:100%';
+        pre.textContent = JSON.stringify(info, null, 1);
+        document.body.appendChild(pre);
+      } catch (e) {
+        const pre = document.createElement('pre');
+        pre.id = 'riginfo';
+        pre.textContent = `DIAG ERROR ${e && e.stack ? e.stack : e}`;
+        document.body.appendChild(pre);
+      }
+    }
+    diagnose('idle-t0.2');
+  </script>
+</body>
+</html>

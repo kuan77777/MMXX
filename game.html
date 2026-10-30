@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DEAD WORLD — 低多边形僵尸生存</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="game/ui/ui.css">
+  <!-- three.js 与 addons 走与原项目完全一致的路径（r180，MIT），不额外引 CDN -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./js/fw3d/vendor/three.module.min.js",
+        "three/addons/": "./js/fw3d/vendor/addons/"
+      }
+    }
+  </script>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #0b0f13; overflow: hidden; }
+    #dd-boot-error {
+      position: fixed; inset: 0; display: none; z-index: 20000;
+      align-items: center; justify-content: center; padding: 24px;
+      font: 13px/1.7 ui-monospace, monospace; color: #e8d5c0; background: #16110e;
+    }
+    #dd-boot-error pre { max-width: 720px; white-space: pre-wrap; }
+    #test-output { position: fixed; left: 0; top: 0; z-index: 30000; display: none; }
+  </style>
+</head>
+<body>
+  <div id="dd-boot-error"><pre></pre></div>
+  <pre id="test-output"></pre>
+
+  <script type="module">
+    // ── 入口：创建游戏并挂到 window 上（便于自动化测试与调试）
+    import { Game } from './game/core/game.js';
+    import { QUALITY_PRESETS, validateConfig } from './game/config/game-config.js';
+
+    const params = new URLSearchParams(location.search);
+    const errors = [];
+    window.__DD_ERRORS__ = errors;
+
+    window.addEventListener('error', (e) => errors.push(`error: ${e.message}${e.filename ? ` @ ${e.filename}:${e.lineno}` : ''}`));
+    window.addEventListener('unhandledrejection', (e) => errors.push(`unhandledrejection: ${e.reason && e.reason.message ? e.reason.message : e.reason}`));
+
+    // 看门狗：12 秒后还没标记启动结果，就把收集到的错误写进 DOM。
+    // 否则"模块加载失败"会让页面一片空白、自动化测试也拿不到任何线索。
+    setTimeout(() => {
+      if (window.__DD_BOOT__ === undefined) {
+        const pre = document.getElementById('test-output');
+        if (pre) {
+          pre.style.display = 'block';
+          pre.textContent = `BOOT NEVER COMPLETED\n\ncollected errors:\n${errors.join('\n') || '(none captured)'}\n`;
+        }
+      }
+    }, 12000);
+
+    function showFatal(err) {
+      const box = document.getElementById('dd-boot-error');
+      box.style.display = 'flex';
+      box.querySelector('pre').textContent = `游戏启动失败：\n${err && err.stack ? err.stack : err}\n\n`
+        + '请确认浏览器支持 WebGL2，并通过 HTTP 服务打开本页面（不要用 file:// 直接打开，ES 模块会被 CORS 拦截）。';
+    }
+
+    // 读取保存过的设置
+    let saved = {};
+    try {
+      const raw = localStorage.getItem('dd.settings');
+      if (raw) saved = JSON.parse(raw) || {};
+    } catch (e) {}
+
+    const baseConfig = validateConfig({
+      render: saved.quality ? QUALITY_PRESETS[saved.quality] ? QUALITY_PRESETS[saved.quality].render : {} : {},
+      audio: {
+        enabled: saved.enabled != null ? saved.enabled : true,
+        master: Number.isFinite(saved.master) ? saved.master : 0.8,
+        sfx: Number.isFinite(saved.sfx) ? saved.sfx : 1,
+        ambient: Number.isFinite(saved.ambient) ? saved.ambient : 0.6,
+      },
+      camera: {
+        sensitivity: Number.isFinite(saved.sensitivity) ? saved.sensitivity : 0.0022,
+        fov: Number.isFinite(saved.fov) ? saved.fov : 72,
+      },
+      // 天气/季节/植被区域偏好（设置面板写进 dd.settings 的那一份）
+      world: {
+        weatherMode: saved.weatherMode || 'auto',
+        weatherScale: Number.isFinite(saved.weatherScale) ? saved.weatherScale : 1,
+        weatherEnabled: saved.weatherEnabled != null ? saved.weatherEnabled : true,
+        season: saved.season || 'summer',
+        region: saved.region || 'temperate',
+      },
+    });
+    if (saved.quality && QUALITY_PRESETS[saved.quality]) {
+      Object.assign(baseConfig.render, QUALITY_PRESETS[saved.quality].render);
+      Object.assign(baseConfig.ai, QUALITY_PRESETS[saved.quality].ai);
+    }
+    // 调试开关：?noshadow=1 关阴影（排查阴影问题时用）
+    if (params.get('noshadow') === '1') {
+      baseConfig.render.shadowsEnabled = false;
+      baseConfig.render.shadows = false;
+    }
+    // ?season=spring|summer|autumn|winter 指定开局季节（四季只换树木几何 + 环境色，不改地图）
+    // ?daysPerSeason=N 每个季节几天（0 = 关掉自动换季，方便截图/调试）
+    if (params.get('season')) baseConfig.world.season = params.get('season');
+    if (params.has('daysPerSeason')) {
+      const d = Number(params.get('daysPerSeason'));
+      baseConfig.world.seasonsEnabled = Number.isFinite(d) && d > 0;
+      if (Number.isFinite(d) && d > 0) baseConfig.world.daysPerSeason = d;
+    }
+    // ?weather=clear|cloudy|overcast|fog|drizzle|rain|storm|snow|blizzard
+    //   = 固定天气（截图/调试用；auto 交回自动推进）
+    // ?weatherScale=2 天气持续时长倍率（0.2 = 换得很快）
+    if (params.get('weather')) baseConfig.world.weatherMode = params.get('weather');
+    if (params.has('weatherScale')) {
+      const s = Number(params.get('weatherScale'));
+      if (Number.isFinite(s) && s > 0) baseConfig.world.weatherScale = s;
+    }
+    // ?region=temperate|northeast|north|jiangnan|south|southwest|northwest
+    //   = 中国植被区域（决定树种混交；默认 temperate = 原来的温带混交）
+    if (params.get('region')) baseConfig.world.region = params.get('region');
+    // ?terrainUrl=data/terrain/xxx 换一张烘焙好的真实地形（见 docs/TERRAIN.md）
+    // ?terrain=0 关掉真实地形，退回原来的平地小镇（排查"是不是地形搞的"时很有用）
+    if (params.has('terrainUrl')) baseConfig.terrain.url = params.get('terrainUrl');
+    if (params.get('terrain') === '0') baseConfig.terrain.enabled = false;
+    // ?roadNetUrl=data/roads/xxx 换一份烘焙好的真实路网；?roads=0 只保留镇内模板街区
+    if (params.has('roadNetUrl')) baseConfig.roads.url = params.get('roadNetUrl');
+    if (params.get('roads') === '0') baseConfig.roads.enabled = false;
+
+    const game = new Game({ container: document.body, config: baseConfig });
+    window.__DD__ = game;
+
+    let bootOk = false;
+    try {
+      await game.boot();
+      bootOk = true;
+    } catch (e) {
+      console.error(e);
+      showFatal(e);
+      window.__DD_BOOT__ = { ok: false, error: String(e && e.message ? e.message : e) };
+    }
+
+    if (bootOk) window.__DD_BOOT__ = { ok: true };
+
+    // ── URL 参数：?autostart=1 直接进游戏；?selftest=1 跑自动化验收
+    //    ?at=x,z 把玩家直接放到指定位置（截图/排查用；不传就按布局的出生点）
+    //    ?yaw=度数 指定朝向（0 = +Z 前方，90 = +X），配合 ?at 用
+    //    ?eat=i_food_can,i_food_chocolate 开局就连吃几样东西（验食物功效 / 截图 HUD 的 buff）
+    if (bootOk && params.get('autostart') === '1') {
+      await game.newGame();
+      const at = (params.get('at') || '').split(',').map(Number);
+      if (at.length === 2 && Number.isFinite(at[0]) && Number.isFinite(at[1])) {
+        game.player.setPosition(at[0], 0, at[1]);
+        game.playerCharacter.setPosition(at[0], 0, at[1]);
+      }
+      const yawDeg = Number(params.get('yaw'));
+      if (Number.isFinite(yawDeg)) {
+        const yaw = (yawDeg * Math.PI) / 180;
+        game.player.yaw = yaw;
+        game.cameraRig.yaw = yaw;
+      }
+      // ?near=zombie：把镜头挪到最近的感染者正前方（截角色/查穿模用）
+      if (params.get('near') === 'zombie' && game.director) {
+        const zs = game.director.npcs.filter((n) => n.type === 'zombie' && n.alive);
+        if (zs.length) {
+          const z = zs[0];
+          game.player.setPosition(z.x - 4, 0, z.z);
+          game.playerCharacter.setPosition(z.x - 4, 0, z.z);
+          game.player.yaw = Math.PI / 2;
+          game.cameraRig.yaw = Math.PI / 2;
+          z.yaw = -Math.PI / 2;
+          z._syncCharacter();
+          if (z.char) z.char.setBaseState('idle', 0);
+        }
+      }
+      // ?eat=i_food_can,i_food_chocolate：开局按顺序吃/喝几样（验证食物功效与 HUD buff）
+      const eat = (params.get('eat') || '').split(',').map((s) => s.trim()).filter(Boolean);
+      for (const itemId of eat) {
+        const inv = game.player.inventory;
+        let list = 'quick';
+        let idx = inv.quick.findIndex((s) => s && s.itemId === itemId);
+        if (idx < 0) { list = 'bag'; idx = inv.slots.findIndex((s) => s && s.itemId === itemId); }
+        if (idx < 0) { console.warn(`[eat] 背包里没有 ${itemId}`); continue; }
+        const res = game.player.useItem(list, idx);
+        if (res && res.message) console.log(`[eat] ${res.message}`);
+      }
+      // ?give=i_w_sniper,i_ammo_762：开局直接塞进背包（验枪械外观/数据，不写存档）
+      const give = (params.get('give') || '').split(',').map((s) => s.trim()).filter(Boolean);
+      for (const itemId of give) {
+        const res = game.player.inventory.add(itemId, 1, { ignoreWeight: true });
+        if (!res || !res.added) console.warn(`[give] 加不进背包: ${itemId}`);
+        else console.log(`[give] 获得 ${itemId}`);
+      }
+      // ?equip=w_sniper_762：直接装备某把武器（配合 ?give= 用）
+      const equipId = params.get('equip');
+      if (equipId) {
+        game.player._syncWeapons();
+        if (game.player.equip(equipId)) { game._syncWeaponVisual(); console.log(`[equip] ${equipId}`); }
+        else console.warn(`[equip] 没有这把武器: ${equipId}`);
+      }
+      // ?wound=bleeding:0.6,infection:0.4：直接给玩家加伤情（验 HUD 伤情/医疗功效）
+      const woundStr = params.get('wound') || '';
+      for (const part of woundStr.split(',').map((s) => s.trim()).filter(Boolean)) {
+        const [kind, val] = part.split(':');
+        const sev = Number(val);
+        if (!kind || !game.player.med) continue;
+        game.player.med.add(kind, Number.isFinite(sev) && sev > 0 ? sev : 0.5);
+        console.log(`[wound] ${kind}=${Number.isFinite(sev) ? sev : 0.5}`);
+      }
+      if (game.ui && game.ui.refreshInventory) game.ui.refreshInventory(game._inventoryProxy());
+    }
+
+    if (bootOk && params.get('selftest') === '1') {
+      const out = document.getElementById('test-output');
+      out.style.display = 'block';
+      const results = [];
+      const log = (name, ok, detail) => {
+        results.push({ name, ok: !!ok, detail: detail == null ? '' : String(detail) });
+        // 立即写进 DOM：headless 下如果后面卡住，至少能看到进行到哪一步
+        out.textContent = results.map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? `  (${r.detail})` : ''}`).join('\n');
+        document.title = `DD-TEST-${results.filter((r) => !r.ok).length ? 'FAIL' : 'RUNNING'}`;
+      };
+      // 不依赖 rAF：直接按固定 dt 推进模拟，测试结果可复现、也不受 headless 帧率影响
+      const step = (n = 1, dt = 1 / 60) => {
+        for (let i = 0; i < n; i += 1) {
+          try { game._updateGame(dt); } catch (e) {
+            log('模拟推进无异常', false, e && e.stack ? e.stack.split('\n').slice(0, 3).join(' / ') : String(e));
+            throw e;
+          }
+          game.input.endFrame();
+        }
+      };
+      const waitFrames = (n) => new Promise((res) => {
+        let i = 0;
+        const tick = () => { i += 1; if (i >= n) res(); else requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      });
+      const key = (type, code) => document.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true }));
+
+      // 地面"看起来多亮"。两种地面实现要都能量：
+      //   · 平地模式：顶点色只是明暗相对值，材质 color 才是季节/天气色 → 直接用材质色；
+      //   · 真实地形：顶点色是绝对色（林地绿/水体蓝/冰雪白），材质 color 只是相对调制
+      //     → 必须把"材质色 × 顶点色平均"乘起来，才是玩家真正看到的亮度。
+      const groundMeshOf = () => (game.world && game.world.group ? game.world.group.getObjectByName('ground') : null);
+      const groundLuma = () => {
+        const g = groundMeshOf();
+        if (!g) return 0;
+        const c = g.material.color;
+        let m = c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722;
+        const col = g.geometry && g.geometry.getAttribute('color');
+        if (col) {
+          let s = 0;
+          const n = Math.min(4000, col.count);
+          for (let i = 0; i < n; i += 1) s += col.getX(i) * 0.2126 + col.getY(i) * 0.7152 + col.getZ(i) * 0.0722;
+          m *= s / n;
+        }
+        return m;
+      };
+
+      try {
+        // 1) 开局
+        await game.newGame();
+        log('新游戏创建成功', game.started === true, `buildings=${game.layout ? game.layout.buildings.length : '?'}`);
+
+        // 2) 世界与系统自检
+        const st = game.selfTest();
+        for (const c of st.checks) log(`[selfTest] ${c.name}`, c.ok, c.detail);
+
+        // 2a0) 真实地形：三套地理数据烘出来的地形要真的在，且镇子必须是平的
+        if (game.terrain) {
+          const t = game.terrain;
+          const s = t.summary();
+          let flatMax = 0;
+          for (let i = 0; i < 80; i += 1) {
+            const x = ((i % 10) - 5) * 32;
+            const z = (Math.floor(i / 10) - 4) * 42;
+            flatMax = Math.max(flatMax, Math.abs(t.heightAt(x, z)));
+          }
+          log('地形：真实地形已加载（COP-DEM 高程 + WorldCover 覆盖 + HydroRIVERS 河网）',
+            s.size > 1000 && s.grid[0] > 100 && s.rivers >= 1,
+            `${s.size}m / ${s.grid[0]}×${s.grid[1]} 格 @${s.cell}m / 真实海拔 ${s.minElevation}~${s.maxElevation}m / 河 ${s.rivers} 段 / 基底 ${s.baseElevation}m`);
+          log('地形：城镇范围被垫平（|高度| < 1m）', flatMax < 1, `镇内最大 |高度| = ${flatMax.toFixed(2)} m`);
+          log('地形：镇外有明显高差（能看见山）', s.maxElevation - s.minElevation > 100,
+            `高差 ${Math.round(s.maxElevation - s.minElevation)} m`);
+          log('地形：河网没从镇子里穿过', t.rivers.every((r) => !t.waterAt(0, 0) && !t.waterAt(120, 120)),
+            `河道 ${t.rivers.map((r) => `${r.w}×${r.d}m`).join(' / ')}`);
+          log('地形：地块内有水面网格', !!(game.world.waterGroup && game.world.waterGroup.children.length),
+            game.world.waterGroup ? `waterGroup=${game.world.waterGroup.children.length} 个 mesh` : '没有水面');
+        } else {
+          log('地形：真实地形已加载', false, '退回了平地（dist/data/terrain 缺文件？见 docs/TERRAIN.md）');
+        }
+
+        // 2a1) 真实路网：OSM 的真实道路 + 道具包模板风格，镇外铺开、镇内不打架
+        if (game.roadNet) {
+          const rn = game.roadNet;
+          const rs = rn.stats || {};
+          const ws = (game.world.stats && game.world.stats.roadNet) || {};
+          const inTown = rn.edges.filter((e) => {
+            for (let i = 0; i < e.p.length; i += 2) {
+              if (Math.abs(e.p[i]) < rn.extent.townHalf - 2 && Math.abs(e.p[i + 1]) < rn.extent.townHalf - 2) return true;
+            }
+            return false;
+          });
+          log('路网：OSM 真实路网已加载（国道/省道/县道/高速）',
+            rn.edges.length > 50 && rs.totalLength > 5000,
+            `${rn.edges.length} 段 / ${Math.round(rs.totalLength / 1000)} km / 等级 ${Object.keys(rs.byClass || {}).length} 种 / 桥 ${rs.bridges} / 隧道 ${rs.tunnels}`);
+          log('路网：真实道路没有穿进镇子（镇内仍是道具包街区）', inTown.length === 0,
+            inTown.length ? `${inTown.length} 段穿镇` : `镇界 ${rn.extent.townHalf}m 内 0 段`);
+          log('路网：世界里有路面/标线网格', ws.drawn > 0 && ws.triangles > 1000,
+            `画了 ${ws.drawn} 段 / ${ws.triangles} 三角面 / 路口补面 ${ws.junctions} 处`);
+          log('路网：镇界断点接出了引道（城市道路入口）', (ws.connectors || 0) > 0,
+            `${ws.connectors || 0} 条引道`);
+          log('路网：沿路摆了道具包的灯杆/信号灯',
+            !!(ws.props > 0) && !!game.world.group.getObjectByName('roadProps'),
+            `${ws.props || 0} 个 prop / ${game.world.group.getObjectByName('roadProps') ? '已实例化' : '缺失'}`);
+        } else {
+          log('路网：OSM 真实路网已加载', false, '没加载到 dist/data/roads（见 docs/ROAD-NETWORK.md）');
+        }
+
+        // 2a) 树木：道具包「树木」的 22 个变体必须全部烘焙成功，且世界里没有一棵退化成程序化树
+        const { TREE_MODEL_KEYS } = await import('./game/world/trees.js');
+        const propKeys = new Set((game.assetsReady && game.assetsReady.props) || []);
+        const missingTrees = TREE_MODEL_KEYS.filter((k) => !propKeys.has(k));
+        log('树木模型全部加载（道具包「树木」变体）', missingTrees.length === 0,
+          missingTrees.length ? `缺 ${missingTrees.slice(0, 6).join(',')}` : `${TREE_MODEL_KEYS.length} 个`);
+        const treeStats = (game.world && game.world.stats && game.world.stats.trees) || null;
+        log('世界里的树没有退化成程序化树',
+          !!treeStats && treeStats.instances > 0 && treeStats.fallback === 0,
+          treeStats ? `${treeStats.instances} 棵 / ${treeStats.buckets} 个模型桶 / 回退 ${treeStats.fallback} / 枯树 ${treeStats.dead}` : 'no stats');
+        log('树木按模型分桶实例化（draw call 数量可控）',
+          !!treeStats && treeStats.buckets > 1 && treeStats.buckets <= TREE_MODEL_KEYS.length,
+          treeStats ? `${treeStats.buckets} 桶` : 'no stats');
+
+        // 2a2) 四季：换到冬季再换回来 —— 树木几何、地面颜色、天空都要跟着换，且不能有降级
+        {
+          const { SEASON_ENV } = await import('./game/world/season.js');
+          const before = game.season || 'summer';
+          // 先把天气钉成"晴"，否则地面颜色会带天气的湿/雾色调，量到的就不是纯季节色
+          game.setWeather('clear', { instant: true, force: true });
+          const groundOf = groundMeshOf;
+          const summerGround = groundOf() ? groundOf().material.color.getHex() : null;
+          const summerLuma = groundLuma();
+          const okWinter = await game.setSeason('winter', { silent: true, force: true, blend: false });
+          const ws = (game.world.stats && game.world.stats.trees) || {};
+          log('换季：能切到冬季并按雪景重建树木',
+            okWinter === true && game.season === 'winter' && ws.season === 'winter' && ws.downgraded === 0,
+            `season=${game.season} 当季几何 ${ws.seasons || 0}/${ws.instances || 0} 棵 / 降级 ${ws.downgraded || 0} / 桶 ${ws.buckets || 0}`);
+          const winterLuma = groundLuma();
+          log('换季：地面换成雪色',
+            !!groundOf() && winterLuma > summerLuma + 0.02,
+            `地面亮度 ${summerLuma.toFixed(3)} → ${winterLuma.toFixed(3)}（材质 #${groundOf() ? groundOf().material.color.getHexString() : 'n/a'}）`);
+          const okBack = await game.setSeason(before, { silent: true, force: true, blend: false });
+          log('换季：能换回原季节（几何与地面都还原）',
+            okBack === true && game.season === before && (!groundOf() || Math.abs(groundLuma() - summerLuma) < 0.05),
+            `season=${game.season} 地面亮度 ${groundLuma().toFixed(3)}（夏天 ${summerLuma.toFixed(3)}）`);
+          log('换季：树木风摆已重新接上（秋/冬是新建的树材质）',
+            !!(game.weatherFx && game.weatherFx.stats.windMaterials > 0),
+            `风材质 ${game.weatherFx ? game.weatherFx.stats.windMaterials : 0} 个`);
+          game.setWeather('auto', { silent: true });
+        }
+
+        // 2b) 天气：强制晴 / 雷雨 / 暴雪各跑一段，验证粒子、雾、光照、地面、湿润、雷电与 AI 感知
+        {
+          const fogOf = () => game.scene.fog.density;
+          const sunOf = () => game.sun.intensity;
+          const groundHex = () => groundMeshOf().material.color.getHex();
+          const { weatherIdsForSeason } = await import('./game/world/weather.js');
+
+          // 预报：自动推进时应该能报出"下一个天气 + 剩余时间"
+          // （固定天气/过渡中没有预报，这是刻意的：玩家自己钉住的天气不需要预报）
+          game.weather.unforce();
+          const forecast = game.weather.info().next;
+          log('天气：有预报（下一个天气 + 剩余时间）',
+            !!(forecast && forecast.id && forecast.eta >= 0 && weatherIdsForSeason(game.season).includes(forecast.id)),
+            forecast ? `${forecast.label} 还有 ${forecast.eta}s` : 'null');
+
+          game.setWeather('clear', { instant: true, force: true });
+          step(4);
+          // 云层：晴天不该有云（cloud = 0 时隐藏），并且"自动云"确实被建出来了
+          log('天气：晴天没有云层（云是天气驱动的）',
+            !!(game.weatherFx._clouds && game.weatherFx.stats.clouds > 0 && game.weatherFx._clouds.visible === false),
+            `云 ${game.weatherFx.stats.clouds} 片 / 可见=${game.weatherFx._clouds ? game.weatherFx._clouds.visible : 'n/a'}`);
+          // 季节环境声：白天（春/夏）应该能排到鸟叫，且声音名在音效表里
+          {
+            const seasonWas = game.season;
+            game.season = 'summer';
+            const played = [];
+            const origPlay = game._playSound.bind(game);
+            game._playSound = (n) => { played.push(n); return true; };
+            if (game._ambience) game._ambience.timer = 0;
+            game._updateAmbience(0.1);
+            game._playSound = origPlay;
+            game.season = seasonWas;
+            log('季节环境声：夏天白天会放鸟叫', played.includes('birds'), played.join(',') || '没排到');
+          }
+          const clearFog = fogOf();
+          const clearSun = sunOf();
+          const clearGround = groundHex();
+          const clearLuma = groundLuma();
+
+          game.setWeather('storm', { instant: true, force: true });
+          const strikesBefore = game.weatherFx.stats.lightning;
+          step(60);                       // 1 秒，足够雨滴淡入 + 地面开始变湿
+          log('天气：雷雨会加大雾（雾密度上升）', fogOf() > clearFog * 1.5,
+            `晴 ${clearFog.toFixed(5)} → 雷雨 ${fogOf().toFixed(5)}`);
+          log('天气：雷雨天空有云层（不是只有颜色）',
+            !!(game.weatherFx._clouds && game.weatherFx._clouds.visible),
+            `可见=${game.weatherFx._clouds ? game.weatherFx._clouds.visible : 'n/a'} 不透明度=${game.weatherFx._clouds ? game.weatherFx._clouds.material.opacity.toFixed(2) : 'n/a'}`);
+          log('天气：雷雨压暗阳光', sunOf() < clearSun * 0.8, `晴 ${clearSun.toFixed(2)} → 雷雨 ${sunOf().toFixed(2)}`);
+          log('天气：下雨后地面变暗（湿了）', groundLuma() < clearLuma - 0.005,
+            `亮度 ${clearLuma.toFixed(3)} → ${groundLuma().toFixed(3)}（材质 #${clearGround.toString(16)} → #${groundHex().toString(16)}）`);
+          log('天气：雨粒子在相机周围可见', !!(game.weatherFx._rain && game.weatherFx._rain.visible && game.weatherFx._rainLevel > 0.2),
+            `visible=${game.weatherFx._rain ? game.weatherFx._rain.visible : 'n/a'} level=${game.weatherFx._rainLevel.toFixed(2)}`);
+          log('天气：地面湿润度在累积', game.weather.wetness > 0.05, `wetness=${game.weather.wetness.toFixed(3)}`);
+          log('天气：雨滴在地面溅射（不是只有空中拉丝）',
+            !!(game.weatherFx._splash && game.weatherFx._splash.visible && game.weatherFx.stats.splash > 0),
+            `visible=${game.weatherFx._splash ? game.weatherFx._splash.visible : 'n/a'} count=${game.weatherFx.stats.splash}`);
+          // 雪地/湿地换脚步声（用天气的慢变量，雨停后地面还湿着时仍然"啪叽"）
+          {
+            const w0 = game.weather.wetness;
+            const s0 = game.weather.snowCover;
+            game.weather.wetness = 0.7;
+            game.weather.snowCover = 0;
+            const wetStep = game._footstepVariant('footstep');
+            game.weather.snowCover = 0.5;
+            const snowStep = game._footstepVariant('footstep');
+            game.weather.wetness = w0;
+            game.weather.snowCover = s0;
+            log('天气：雪地/湿地会换脚步声', wetStep === 'footstep_wet' && snowStep === 'footstep_snow',
+              `湿=${wetStep} 雪=${snowStep}`);
+          }
+
+          // 雷电：把计时器按到 0，强制劈一次
+          const boltsBefore = game.weatherFx.stats.bolts;
+          game.weather.strikeTimer = 0;
+          step(2);
+          log('天气：会打雷（闪光 + 待播雷声）',
+            game.weatherFx.stats.lightning > strikesBefore || game._thunderQueue.length > 0,
+            `闪光 +${game.weatherFx.stats.lightning - strikesBefore} 次 / 待播雷声 ${game._thunderQueue.length}`);
+          log('天气：能看到电弧本身（不只是灯光闪一下）',
+            game.weatherFx.stats.bolts > boltsBefore && !!(game.weatherFx._bolt && game.weatherFx._bolt.visible),
+            `电弧 +${game.weatherFx.stats.bolts - boltsBefore} 条 / 可见=${game.weatherFx._bolt ? game.weatherFx._bolt.visible : 'n/a'}`);
+          log('天气：雷声按声速延迟（不会和闪光同帧）',
+            game._thunderQueue.every((q) => q.at > game.elapsed - 0.001), `${game._thunderQueue.length} 条`);
+
+          // AI 感知：同一个点，能见度 100% 时看得见、30% 时看不见
+          let pair = null;
+          for (const n of game.director.npcs) {
+            if (n.type !== 'zombie' || !n.alive) continue;
+            const px = n.x + Math.sin(n.yaw) * 10;
+            const pz = n.z + Math.cos(n.yaw) * 10;
+            if (game.collision.lineOfSight(n.x, 1.55, n.z, px, 1.55, pz)) { pair = { n, px, pz }; break; }
+          }
+          if (pair) {
+            const wClear = { collision: game.collision, perception: { sight: 1, hearing: 1 } };
+            const wFog = { collision: game.collision, perception: { sight: 0.3, hearing: 1 } };
+            const seeClear = pair.n.canSeePoint(pair.px, pair.pz, wClear) === true;
+            const seeFog = pair.n.canSeePoint(pair.px, pair.pz, wFog) === false;
+            log('天气：AI 视觉距离受能见度影响（晴看得见 / 雾看不见）', seeClear && seeFog,
+              `clear=${seeClear} fog=${seeFog}`);
+          } else {
+            log('天气：AI 视觉距离受能见度影响（晴看得见 / 雾看不见）', false, '没找到视线通畅的僵尸');
+          }
+          log('天气：AI 的世界上下文里带 weather + perception',
+            !!game._npcWorld && game._npcWorld.weather === game.weather && !!game._npcWorld.perception,
+            game._npcWorld ? `sight=${game._npcWorld.perception.sight.toFixed(2)} hearing=${game._npcWorld.perception.hearing.toFixed(2)}` : 'no world');
+
+          // 冬天暴雪：雪粒子 + 积雪把地面推白
+          const seasonNow = game.season;
+          await game.setSeason('winter', { silent: true, force: true, blend: false });
+          game.setWeather('blizzard', { instant: true, force: true });
+          step(50);
+          log('天气：冬天能下暴雪（雪粒子可见）',
+            !!(game.weatherFx._snow && game.weatherFx._snow.visible && game.weatherFx._snowLevel > 0.2),
+            `visible=${game.weatherFx._snow ? game.weatherFx._snow.visible : 'n/a'} level=${game.weatherFx._snowLevel.toFixed(2)}`);
+          const blizzardLuma = groundLuma();
+          log('天气：积雪把地面推白', blizzardLuma > clearLuma + 0.02,
+            `地面亮度 ${clearLuma.toFixed(3)} → ${blizzardLuma.toFixed(3)}（材质 #${clearGround.toString(16)} → #${groundHex().toString(16)}）`);
+          log('天气：暴雪能见度低（AI 视觉倍率 < 0.5）', game.weather.params.sight < 0.5,
+            `sight=${game.weather.params.sight.toFixed(2)}`);
+
+          // 还原：季节、天气、地面湿润都要回到测试前的状态，别把后面的断言带歪
+          await game.setSeason(seasonNow, { silent: true, force: true, blend: false });
+          game.setWeather('clear', { instant: true, force: true });
+          game.weather.wetness = 0;
+          game.weather.snowCover = 0;
+          game.setWeather('auto', { silent: true });
+          step(3);
+        }
+
+        // 2b2) 中国植被区域：默认（temperate）必须保持旧的温带混交，不出现棕榈/中国树种标注
+        log('植被区域：默认地区保持旧混交（没有棕榈、树不带中国树种标注）',
+          game.layout.trees.length > 0
+            && game.layout.trees.every((t) => !t.cn)
+            && !game.layout.trees.some((t) => t.species === 'palm'),
+          `区域=${game.config.world.region}，${game.layout.trees.length} 棵树`);
+
+        // 2c) 角色包资产：僵尸 FBX 必须真的进了游戏（不是回退成程序化模型）
+        const charKeys = (game.assetsReady && game.assetsReady.characters) || [];        log('角色包僵尸 FBX 已加载', charKeys.includes('zombie'), `已加载: ${charKeys.join(',') || '(无)'}`);
+        const zTemplate = game.charReport && game.charReport.templates
+          ? game.charReport.templates.find((t) => t.key === 'zombie') : null;
+        log('僵尸动画映射齐全（Idle/Walk/Run/Bite/Crawl）',
+          !!zTemplate && ['idle', 'walk', 'run', 'melee', 'crouch'].every((s) => zTemplate.clips.includes(s)),
+          zTemplate ? zTemplate.clips.join(',') : 'no template');
+        log('僵尸缺失动作已程序化补齐（倒地/受击）',
+          !!zTemplate && zTemplate.synthetic.includes('death') && zTemplate.synthetic.includes('hit'),
+          zTemplate ? `synthetic=${zTemplate.synthetic.join(',')}` : 'no template');
+
+        // 3) 第三人称 → 第一人称：相机应贴到眼睛位置
+        game.cameraRig.setMode('third');
+        step(10);
+        const camTP = game.camera.position.clone();
+        const eyeTP = game.player.eyePosition;
+        const distTP = Math.hypot(camTP.x - eyeTP.x, camTP.y - eyeTP.y, camTP.z - eyeTP.z);
+        log('第三人称相机在玩家身后', distTP > 1.2, `距离 ${distTP.toFixed(2)}m`);
+
+        game.cameraRig.setMode('first');
+        step(14);
+        const camFP = game.camera.position.clone();
+        const eyeFP = game.player.eyePosition;
+        const distFP = Math.hypot(camFP.x - eyeFP.x, camFP.y - eyeFP.y, camFP.z - eyeFP.z);
+        log('第一人称相机贴合眼睛', distFP < 0.35, `距离 ${distFP.toFixed(3)}m`);
+        log('第一人称隐藏自身模型', game.playerCharacter.rig.mesh.visible === false, `visible=${game.playerCharacter.rig.mesh.visible}`);
+        log('第一人称显示手持武器视图模型',
+          !!game._viewmodel && game._viewmodel.visible === true && game._viewmodel.children.length > 0,
+          `visible=${game._viewmodel ? game._viewmodel.visible : 'n/a'} children=${game._viewmodel ? game._viewmodel.children.length : 0}`);
+
+        // 4) 按 W 应该真的走动（端到端模拟键盘事件）
+        game.cameraRig.setMode('third');
+        step(6);
+        const startPos = { x: game.player.pos.x, z: game.player.pos.z };
+        key('keydown', 'KeyW');
+        step(40);            // 40 帧 ≈ 0.67s
+        key('keyup', 'KeyW');
+        step(4);
+        const moved = Math.hypot(game.player.pos.x - startPos.x, game.player.pos.z - startPos.z);
+        log('按下 W 后玩家发生位移', moved > 0.8, `移动 ${moved.toFixed(2)}m`);
+        const anim = game.playerCharacter.animator;
+        log('移动时动画不是 idle', anim.state !== 'idle', `state=${anim.state}`);
+        step(40);
+        log('停下后动画回到 idle', anim.state === 'idle', `state=${anim.state}`);
+
+        // 4b) 地图：M 打开大地图（世界暂停 + 可缩放/平移），再按 M 关回来
+        {
+          const wasOpen = game.map && game.map.open;
+          key('keydown', 'KeyM');
+          step(3);
+          const opened = !!(game.map && game.map.open === true);
+          const screenEl = document.getElementById('dd-map-screen');
+          const screenShown = !!screenEl && screenEl.style.display !== 'none';
+          // 基准要在地图已经打开之后取：按下 M 的那一帧 world 还会走一步（paused 在按键处理之前算），
+          // 而且真实 rAF 循环也可能抢在手动 step 之前消费掉这次按键。
+          const elapsed0 = game.elapsed;
+          step(30);
+          const frozenAt = game.elapsed;
+          const frozen = Math.abs(frozenAt - elapsed0) < 1e-6;
+          const z0 = game.map.zoom;
+          document.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true }));
+          step(2);
+          const zoomed = game.map.zoom > z0;
+          const cx0 = game.map.center.x;
+          key('keydown', 'KeyD');
+          step(20);
+          key('keyup', 'KeyD');
+          const panned = game.map.center.x > cx0 + 0.5;
+          key('keydown', 'KeyM');
+          step(3);
+          const closed = game.map.open === false;
+          log('地图：按 M 打开大地图，界面出现且世界暂停',
+            opened && screenShown && frozen ? true : false,
+            `open=${opened} screen=${screenShown} elapsed ${elapsed0.toFixed(2)}→${frozenAt.toFixed(2)}（30 帧内）`);
+          log('地图：大地图能滚轮缩放、WASD 平移',
+            zoomed && panned, `zoom ${z0.toFixed(2)}→${game.map.zoom.toFixed(2)} · 中心 x ${cx0.toFixed(0)}→${game.map.center.x.toFixed(0)}`);
+          log('地图：再按 M 关闭并解除暂停', closed && wasOpen === false, `open=${game.map.open}`);
+        }
+
+        // 5) 撞墙不穿模：把玩家推到墙边再往墙里走
+        const wall = game.collision.boxes.find((b) => b.tag === 'wall' && (b.maxX - b.minX) > 2);
+        if (wall) {
+          game.player.setPosition((wall.minX + wall.maxX) / 2, 0, wall.maxZ + 1.5);
+          step(2);
+          key('keydown', 'KeyW');
+          for (let i = 0; i < 60; i += 1) {
+            game.player.vel.z = -9;
+            step(1);
+          }
+          key('keyup', 'KeyW');
+          const inside = wall.minX <= game.player.pos.x && game.player.pos.x <= wall.maxX
+            && wall.minZ <= game.player.pos.z && game.player.pos.z <= wall.maxZ;
+          log('玩家没有穿进墙体', !inside,
+            `pos=(${game.player.pos.x.toFixed(2)}, ${game.player.pos.z.toFixed(2)})`);
+          const B = game.layout.bounds;
+          log('玩家没有掉出地图边界',
+            game.player.pos.x > B.minX && game.player.pos.x < B.maxX && game.player.pos.z > B.minZ && game.player.pos.z < B.maxZ,
+            `p=(${game.player.pos.x.toFixed(1)},${game.player.pos.z.toFixed(1)})`);
+        }
+
+        // 6) 僵尸感知与追逐：挑一个视线通畅的僵尸，把玩家放到它正前方
+        const zombies = game.director.npcs.filter((n) => n.type === 'zombie' && n.alive);
+        let testZ = null;
+        let testPos = null;
+        for (const c of zombies) {
+          const px = c.x + 4.5;
+          const pz = c.z;
+          if (game.collision.blockedAt(px, pz, 0.35, 0, 1.7)) continue;
+          if (!game.collision.lineOfSight(c.x, 1.55, c.z, px, 1.55, pz)) continue;
+          testZ = c;
+          testPos = { x: px, z: pz };
+          break;
+        }
+        if (!testZ && zombies.length) {
+          testZ = zombies[0];
+          testPos = { x: testZ.x, z: testZ.z + 4.5 };
+        }
+        if (testZ) {
+          game.player.setPosition(testPos.x, 0, testPos.z);
+          const facing = Math.atan2(game.player.pos.x - testZ.x, game.player.pos.z - testZ.z);
+          testZ.yaw = facing;
+          testZ._syncCharacter();
+          const seeFwd = testZ.canSeePoint(game.player.pos.x, game.player.pos.z, { collision: game.collision });
+          testZ.yaw = facing + Math.PI;
+          testZ._syncCharacter();
+          const seeBack = testZ.canSeePoint(game.player.pos.x, game.player.pos.z, { collision: game.collision });
+          testZ.yaw = facing;
+          testZ._syncCharacter();
+          log('僵尸正前方能看见玩家', seeFwd === true);
+          log('僵尸背对时看不见玩家（视角限制生效）', seeBack === false);
+
+          const zStart = { x: testZ.x, z: testZ.z };
+          step(150);           // 2.5 秒
+          const zState = testZ.state;
+          const zMoved = Math.hypot(testZ.x - zStart.x, testZ.z - zStart.z);
+          log('僵尸发现玩家后进入追逐/攻击', ['chase', 'attack'].includes(zState), `state=${zState}`);
+          log('僵尸朝玩家移动', zMoved > 0.3, `移动 ${zMoved.toFixed(2)}m`);
+
+          // 6b) FBX 僵尸接入：模型来源 / 动画 / 程序化着色 / 咬击 / 倒地
+          const zc = testZ.char;
+          const zModel = zc && zc.model;
+          log('僵尸用的是角色包 FBX 模型（不是程序化回退）',
+            !!zc && zc.modelKind === 'fbx' && !!zModel && zModel.templateKey === 'zombie',
+            zc ? `${zc.modelKind}/${zModel ? zModel.templateKey : '?'}` : 'no char');
+          const zClips = zc ? zc.animator.clips : {};
+          log('僵尸模型带 Idle/Walk/Run/Bite/Crawl 动画',
+            ['idle', 'walk', 'run', 'melee', 'crouch'].every((s) => !!zClips[s]),
+            Object.keys(zClips).length + ' 个状态');
+          log('僵尸倒地用的是合成片段（模型没有 Death）',
+            !!zClips.death && /procedural_fall/.test(zClips.death.name), zClips.death ? zClips.death.name : 'missing');
+          const zMesh = zc && zc.rig ? zc.rig.mesh : null;
+          const zMats = zMesh ? (Array.isArray(zMesh.material) ? zMesh.material : [zMesh.material]) : [];
+          log('僵尸程序化着色生效（角色包没带贴图）',
+            zMats.length > 0 && zMats.every((m) => m.vertexColors) && !!zMesh.geometry.getAttribute('color'),
+            `${zMats.length} 个材质 / ${zMesh && zMesh.geometry.getAttribute('color') ? 'has color' : 'no color'}`);
+
+          // 攻击：僵尸必须真的播咬击，而不是站着僵一下
+          testZ.nextAttackAt = 0;
+          testZ._tryMelee(
+            { now: game.elapsed, emitSound() {}, playSound() {} },
+            { x: testZ.x, z: testZ.z },
+          );
+          step(3);
+          const bite = zc.animator.actions.get('melee');
+          log('僵尸攻击播放咬击动画', zc.animator.state === 'melee' && !!bite && bite.time > 0.5,
+            `state=${zc.animator.state} time=${bite ? bite.time.toFixed(2) : 'n/a'}`);
+
+          const before = testZ.health;
+          game.director.damageNpc(testZ, 25, { id: 'player', x: game.player.pos.x, z: game.player.pos.z });
+          log('NPC 可以受到伤害并掉血', testZ.health < before || !testZ.alive, `health ${before} → ${testZ.health}`);
+          log('僵尸被打会播受击动作（合成 flinch）',
+            !testZ.alive || /procedural_flinch/.test(zClips.hit ? zClips.hit.name : '') || zc.animator.state === 'hit',
+            `state=${zc.animator.state}`);
+
+          // 死亡倒地：杀掉它，1.5 秒后应该已经绕脚底枢轴倒下
+          game.director.damageNpc(testZ, 9999, { id: 'player', x: game.player.pos.x, z: game.player.pos.z });
+          step(90);
+          const zPivot = zc.group.getObjectByName('charPivot');
+          log('僵尸死亡后倒地（绕脚底枢轴）', !!zPivot && Math.abs(zPivot.rotation.x) > 1.2,
+            zPivot ? `rotX=${zPivot.rotation.x.toFixed(2)} state=${zc.animator.state}` : 'no pivot');
+
+          const alive2 = game.director.npcs.find((n) => n.type === 'zombie' && n.alive);
+          if (alive2) {
+            const r = game._ray;
+            r.origin.set(alive2.x, 1.3, alive2.z - 3);
+            r.direction.set(0, 0, 1);
+            const hit = alive2.char.raycast(r);
+            log('角色命中盒可被射线命中', !!hit, hit ? `${hit.part} @ ${hit.distance.toFixed(2)}m` : 'null');
+          }
+          const w2 = game.collision.boxes.find((b) => b.tag === 'wall');
+          if (w2) {
+            const blocked = game.collision.raycast(
+              (w2.minX + w2.maxX) / 2, 1.2, w2.minZ - 4, 0, 0, 1, 50,
+            );
+            log('射线会被墙体挡住（不能隔墙命中）', !!blocked && blocked.tag === 'wall', blocked ? `${blocked.tag} @ ${blocked.distance.toFixed(2)}m` : 'null');
+          }
+        } else {
+          log('世界中存在僵尸', false, '没有找到僵尸');
+        }
+
+        // 7) 搜刮：打开第一个容器并拿走全部物品
+        const container = [...game.world.containers.values()][0];
+        if (container) {
+          game._openContainer(container);
+          const lootCount = game._lootOpen ? game._lootOpen.items.length : 0;
+          for (let i = 0; i < lootCount; i += 1) game._takeLoot(0);
+          log('容器可以搜刮出物品', lootCount > 0, `${lootCount} 件`);
+          log('搜刮物品进入背包', game.player.inventory.weight > 0, `负重 ${game.player.inventory.weight.toFixed(2)}kg`);
+          game._closeLoot();
+        }
+
+        // 8) 地面拾取
+        const pick = [...game.pickups.values()][0];
+        if (pick) {
+          const before = game.player.inventory.countItem(pick.itemId);
+          game._pickUp(pick.id);
+          const after = game.player.inventory.countItem(pick.itemId);
+          log('地面物品可以拾取', after > before, `${pick.itemId} ${before}→${after}`);
+        }
+
+        // 9) 角色材质与球衣数据
+        //    换成 FBX 角色后，角色穿的是模型自带衣服；球衣网格接线完成后才会把俱乐部图集贴上去。
+        //    所以这里分开断言："有可用材质" + "球衣数据齐全"，而不是假装球衣已经生效。
+        const pc = game.playerCharacter;
+        const meshMats = pc.rig && pc.rig.mesh ? (Array.isArray(pc.rig.mesh.material) ? pc.rig.mesh.material : [pc.rig.mesh.material]) : [];
+        log('角色材质已就绪', meshMats.length > 0 && !!meshMats[0], `${meshMats.length} 个材质 / 来源 ${pc.modelKind}`);
+        const kit = pc.kit;
+        log('球衣数据（俱乐部配色/号码）已生成', !!kit.shirt && kit.number > 0, `shirt=${kit.shirt} number=${kit.number} pattern=${kit.pattern}`);
+
+        // 10) 存档往返
+        game.player.setPosition(12.5, 0, -33.25);
+        game.player.health = 42;
+        game.manualSave();
+        const saved = game.save.load();
+        log('存档可以写入并读回', saved.ok, saved.ok ? `version=${saved.data.version}` : saved.error);
+        game.player.setPosition(0, 0, 0);
+        game.player.health = 100;
+        game._restoreState(saved.data);
+        const restoredPos = Math.abs(game.player.pos.x - 12.5) < 0.5 && Math.abs(game.player.pos.z + 33.25) < 0.5;
+        log('读档恢复玩家位置', restoredPos, `pos=(${game.player.pos.x.toFixed(1)}, ${game.player.pos.z.toFixed(1)})`);
+        log('读档恢复生命值', Math.abs(game.player.health - 42) < 1, `health=${game.player.health}`);
+        log('读档恢复天气（天气/湿润/积雪都写进了存档）',
+          !!saved.data.world.weather && game.weather && game.weather.currentId === saved.data.world.weather.currentId
+            && Math.abs(game.weather.wetness - (saved.data.world.weather.wetness || 0)) < 0.02,
+          saved.data.world.weather ? `${saved.data.world.weather.currentId} wet=${saved.data.world.weather.wetness}` : 'no weather in save');
+
+        // 11) 渲染调用本身不能抛异常（headless 下 rAF 会被节流，所以不依赖它来计时）
+        try {
+          game._render();
+          log('渲染调用不抛异常', true, `已渲染 ${game._stats.frames} 帧`);
+        } catch (e) {
+          log('渲染调用不抛异常', false, String(e && e.message));
+        }
+        log('主循环处于运行状态', game.running === true && !game._fatal, `running=${game.running}`);
+
+        // 12) 控制台错误
+        log('没有未捕获的控制台错误', errors.length === 0, errors.join(' | '));
+      } catch (e) {
+        log('自检过程未抛出异常', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' / ') : String(e));
+        console.error(e);
+      }
+
+      const pass = results.filter((r) => r.ok).length;
+      const fail = results.length - pass;
+      const report = { ok: fail === 0 && errors.length === 0, pass, fail, results, errors, boot: window.__DD_BOOT__ };
+      window.__DD_RESULT__ = report;
+      out.textContent = `=== DEAD WORLD 浏览器验收 ===\n`
+        + results.map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? `  (${r.detail})` : ''}`).join('\n')
+        + `\n\n${pass} passed, ${fail} failed, ${results.length} total\n`
+        + (report.ok ? 'BROWSER TESTS PASSED' : 'BROWSER TESTS FAILED')
+        + (errors.length ? `\nconsole errors:\n${errors.join('\n')}` : '');
+      document.title = report.ok ? 'DD-TEST-PASS' : 'DD-TEST-FAIL';
+    }
+  </script>
+</body>
+</html>

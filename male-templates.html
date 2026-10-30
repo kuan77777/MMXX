@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>男性体型模板 — DEAD WORLD</title>
+<link rel="stylesheet" href="game/ui/ui.css">
+<script type="importmap">
+  { "imports": { "three": "./js/fw3d/vendor/three.module.min.js", "three/addons/": "./js/fw3d/vendor/addons/" } }
+</script>
+<style>
+  :root { --bd: rgba(150,175,190,.22); --gold: #e0a34a; --ink: #d9e2e8; --dim: #8fa0ac; }
+  html, body { margin: 0; height: 100%; background: #0e1318; overflow: hidden; font-family: ui-monospace, monospace; color: var(--ink); }
+  #cv { position: fixed; inset: 0; display: block; }
+  #grid { position: fixed; left: 0; right: 0; top: 44px; bottom: 0; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(3, 1fr); pointer-events: none; }
+  .cell { position: relative; border-right: 1px solid rgba(150,175,190,.10); border-bottom: 1px solid rgba(150,175,190,.10); pointer-events: auto; cursor: pointer; }
+  .cell:hover { background: rgba(224,163,74,.05); }
+  .cell.on { background: rgba(224,163,74,.10); box-shadow: inset 0 0 0 1px var(--gold); }
+  .tag { position: absolute; right: 10px; top: 10px; font-size: 10px; color: var(--dim); letter-spacing: .1em; text-shadow: 0 1px 3px #000; }
+  .nm { position: absolute; left: 10px; top: 8px; font-size: 13px; color: var(--ink); text-shadow: 0 1px 3px #000; }
+  .meta { position: absolute; left: 10px; top: 26px; font-size: 10px; color: var(--dim); text-shadow: 0 1px 3px #000; }
+  #bar { position: fixed; left: 0; right: 0; top: 0; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 14px;
+         background: linear-gradient(180deg, rgba(14,19,24,.94), rgba(14,19,24,.55)); border-bottom: 1px solid var(--bd); z-index: 5; }
+  #bar h1 { font-size: 13px; letter-spacing: .18em; margin: 0 10px 0 0; color: var(--gold); font-weight: 600; }
+  #bar .sp { flex: 1; }
+  #bar button, #bar select {
+    font: inherit; font-size: 11px; color: var(--ink); background: rgba(255,255,255,.05);
+    border: 1px solid var(--bd); border-radius: 5px; padding: 5px 9px; cursor: pointer;
+  }
+  #bar button:hover { border-color: var(--gold); }
+  #bar button.on { border-color: var(--gold); background: rgba(224,163,74,.18); }
+  #panel { position: fixed; right: 0; top: 44px; bottom: 0; width: 340px; transform: translateX(100%); transition: transform .18s ease;
+           background: rgba(12,17,22,.96); border-left: 1px solid var(--bd); padding: 16px 18px; box-sizing: border-box; overflow-y: auto; z-index: 6; }
+  #panel.show { transform: none; }
+  #panel h2 { font-size: 13px; margin: 0 0 2px; color: var(--gold); letter-spacing: .1em; }
+  #panel .sub { font-size: 11px; color: var(--dim); line-height: 1.7; margin-bottom: 12px; }
+  #panel .kv { font-size: 11px; line-height: 1.9; }
+  #panel .kv b { color: var(--ink); font-weight: 500; }
+  #panel .kv span { color: var(--dim); }
+  #panel pre { font-size: 10px; line-height: 1.6; color: #b9c6cf; background: rgba(255,255,255,.04);
+               border: 1px solid var(--bd); border-radius: 6px; padding: 10px; overflow: auto; max-height: 42vh; }
+  #panel .acts { display: flex; gap: 8px; margin-top: 10px; }
+  #panel .acts button { flex: 1; font: inherit; font-size: 11px; padding: 8px; border-radius: 5px; cursor: pointer;
+                        color: #ffe6bd; background: rgba(224,163,74,.18); border: 1px solid rgba(224,163,74,.55); }
+  #bars { margin: 6px 0 2px; }
+  #bars .b { display: flex; align-items: center; gap: 6px; font-size: 10px; line-height: 1.75; color: var(--dim); }
+  #bars .b i { font-style: normal; width: 52px; color: var(--dim); }
+  #bars .b .track { flex: 1; height: 5px; background: rgba(255,255,255,.07); border-radius: 3px; overflow: hidden; }
+  #bars .b .fill { display: block; height: 100%; background: linear-gradient(90deg, #6f8fa8, #e0a34a); border-radius: 3px; }
+  #bars .b .track { display: block; }
+  #bars .b .fill.bad { background: linear-gradient(90deg, #8a6a52, #c05a5a); }
+  #bars .b b { width: 42px; text-align: right; color: var(--ink); font-weight: 500; }
+  #tbl { position: fixed; inset: 44px 0 0; background: rgba(10,14,18,.97); z-index: 8; padding: 18px 22px; overflow: auto; display: none; }
+  #tbl.show { display: block; }
+  #tbl h2 { font-size: 13px; color: var(--gold); letter-spacing: .1em; margin: 0 0 4px; }
+  #tbl p { font-size: 11px; color: var(--dim); margin: 0 0 14px; line-height: 1.7; }
+  #tbl table { border-collapse: collapse; font-size: 11px; width: 100%; max-width: 1080px; }
+  #tbl th, #tbl td { padding: 6px 8px; border-bottom: 1px solid rgba(150,175,190,.14); text-align: right; white-space: nowrap; }
+  #tbl th:first-child, #tbl td:first-child { text-align: left; }
+  #tbl th { color: var(--dim); font-weight: 400; letter-spacing: .06em; }
+  #tbl td.good { color: #8fd48f; }
+  #tbl td.bad { color: #d98a7a; }
+  #boot { position: fixed; inset: 0; display: grid; place-items: center; background: #0e1318; z-index: 20; font-size: 12px; color: var(--dim); }
+  #boot.gone { display: none; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="grid"></div>
+
+<div id="bar">
+  <h1>男性体型模板</h1>
+  <span id="cnt" style="font-size:11px;color:var(--dim)"></span>
+  <span class="sp"></span>
+  <button data-view="front" class="on">正面</button>
+  <button data-view="q">45°</button>
+  <button data-view="side">侧面</button>
+  <button data-view="back">背面</button>
+  <button id="anim" class="on">动画</button>
+  <button id="mix">随机组合</button>
+  <button id="json">导出 JSON</button>
+  <button id="stats">属性表</button>
+</div>
+
+<div id="panel">
+  <h2 id="pName">—</h2>
+  <div class="sub" id="pNote"></div>
+  <div class="kv" id="pKv"></div>
+  <div id="bars"></div>
+  <div class="acts">
+    <button id="copy">复制 JSON</button>
+    <button id="close" style="color:#d9e2e8;background:rgba(255,255,255,.05);border-color:rgba(150,175,190,.25)">关闭</button>
+  </div>
+  <pre id="pJson"></pre>
+</div>
+
+<div id="tbl"><h2>形态 → 属性对照</h2>
+  <p>属性是<b>从体型推导</b>出来的（身高³ × 宽 × 厚 × 围度，再压缩成体重指数），不是逐个手写；
+     每项是"相对标准体格"的乘数，括号里是换算成绝对值后的效果。被命中面积是自动的（命中盒跟着 height/宽走）。</p>
+  <table id="tblT"></table>
+</div>
+<div id="boot">载入男性角色 FBX 并生成 12 款模板…</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { AssetLoader } from './game/assets/loader.js';
+import { CharacterFactory } from './game/characters/fbx.js';
+import { CHARACTER_MODELS } from './game/assets/manifest.js';
+import {
+  MALE_TEMPLATES, HAIR_STYLES, BEARD_STYLES, STAT_KEYS, applyMaleTemplate, randomTemplate,
+  deriveStats, describeStats,
+} from './game/characters/male-templates.js';
+
+const boot = document.getElementById('boot');
+const log = (msg) => { boot.textContent = msg; };
+
+// ── 场景 ────────────────────────────────────────────────
+const canvas = document.getElementById('cv');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight, false);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setScissorTest(true);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1b222b);
+scene.fog = new THREE.Fog(0x1b222b, 5, 12);
+
+scene.add(new THREE.HemisphereLight(0xdfe8f0, 0x3b4440, 1.15));
+const key = new THREE.DirectionalLight(0xfff2d8, 2.1);
+key.position.set(2.4, 5.2, 4.6);
+key.castShadow = true;
+key.shadow.mapSize.set(512, 512);
+key.shadow.camera.near = 0.5;
+key.shadow.camera.far = 14;
+key.shadow.camera.left = -1.4;
+key.shadow.camera.right = 1.4;
+key.shadow.camera.top = 2.6;
+key.shadow.camera.bottom = -0.2;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x9fc0ff, 0.85);
+rim.position.set(-3.2, 2.4, -3.4);
+scene.add(rim);
+
+const ground = new THREE.Mesh(new THREE.CircleGeometry(3.2, 40), new THREE.MeshLambertMaterial({ color: 0x2c353a }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+const ring = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.46, 40), new THREE.MeshBasicMaterial({ color: 0x3d4a52, side: THREE.DoubleSide }));
+ring.rotation.x = -Math.PI / 2;
+ring.position.y = 0.002;
+scene.add(ring);
+
+const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 40);
+
+// ── 模板 → 角色 ──────────────────────────────────────────
+const grid = document.getElementById('grid');
+let ROWS = 3, COLS = 4;
+const ANSI = { front: 0, q: -Math.PI * 0.28, side: Math.PI / 2, back: Math.PI };
+// 调试用：?only=<id>&zoom=<米>&cy=<视线高度>&view=front|q|side|back&panel=1
+const QS = new URLSearchParams(location.search);
+const ONLY = QS.get('only');
+const ZOOM = Number(QS.get('zoom') || 0);
+const CY = Number(QS.get('cy') || 0);
+const SHOW_PANEL = QS.get('panel') === '1';
+const state = { view: QS.get('view') || 'front', anim: true, mix: false, selected: -1 };
+
+const entries = [];   // { def, cell, char, mixer, action, labelEls }
+let factory = null;
+
+function yawFor(view) { return ANSI[view] || 0; }
+
+function fillMeta(e) {
+  const d = e.def;
+  const hair = (HAIR_STYLES.find((s) => s.key === d.hair.style) || {}).label || d.hair.style;
+  const beard = (BEARD_STYLES.find((s) => s.key === d.beard.style) || {}).label || d.beard.style;
+  const h = d.height.toFixed(2);
+  e.metaEl.textContent = `${h}m · ${hair} · ${beard}`;
+  const st = deriveStats(d);
+  e.tagEl.textContent = st
+    ? `HP ${Math.round(100 * st.health)} · 速 ${st.speed.toFixed(2)} · 重 ${st.carry.toFixed(2)}`
+    : d.tags.join(' / ');
+}
+
+function makeEntry(def, i) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  cell.dataset.i = String(i);
+  const tagEl = document.createElement('div'); tagEl.className = 'tag';
+  const nmEl = document.createElement('div'); nmEl.className = 'nm';
+  const metaEl = document.createElement('div'); metaEl.className = 'meta';
+  nmEl.textContent = def.name;
+  cell.append(tagEl, nmEl, metaEl);
+  grid.appendChild(cell);
+  const e = { def, cell, tagEl, nmEl, metaEl, char: null, mixer: null, applied: null };
+  fillMeta(e);
+  cell.onclick = () => select(i);
+  return e;
+}
+
+function buildCharacter(e) {
+  const def = e.def;
+  const base = factory.canUse(def.base) ? def.base : (factory.canUse('male_shirt') ? 'male_shirt' : factory.availableKeys[0]);
+  const model = factory.create(base);
+  if (!model) return null;
+  const res = applyMaleTemplate(THREE, model, def);
+  if (!res.ok) console.warn('[template]', def.id, res.warnings);
+  model.group.visible = false;
+  scene.add(model.group);
+  const mixer = new THREE.AnimationMixer(model.group);
+  const clip = model.clips.idle || model.clips.walk;
+  const action = clip ? mixer.clipAction(clip) : null;
+  if (action) action.play();
+  return { model, res, mixer, action, group: model.group };
+}
+
+function select(i) {
+  state.selected = i;
+  for (const e of entries) e.cell.classList.toggle('on', e === entries[i]);
+  const e = entries[i];
+  if (!e) return;
+  const p = document.getElementById('panel');
+  p.classList.add('show');
+  document.getElementById('pName').textContent = `${e.def.name} · ${e.def.id}`;
+  document.getElementById('pNote').textContent = e.def.note || '';
+  const kv = document.getElementById('pKv');
+  const r = (e.applied && e.applied.report) || {};
+  const rows = [
+    ['身高', `${e.def.height.toFixed(2)} m（整体缩放 ${(e.def.height / 1.78).toFixed(3)}×）`],
+    ['整体宽/厚', `${e.def.width.toFixed(2)} × ${e.def.depth.toFixed(2)}`],
+    ['肩宽 / 胸厚', `${e.def.body.shoulder} / ${e.def.body.chest}`],
+    ['腰 / 腹', `${e.def.body.waist} / ${e.def.body.belly}`],
+    ['臂 / 腿 / 颈', `${e.def.body.arm} / ${e.def.body.leg} / ${e.def.body.neck}`],
+    ['头大小', String(e.def.body.head)],
+    ['发型 / 胡子', `${e.def.hair.style} / ${e.def.beard.style}（${r.hairBoxes ?? '?'} + ${r.beardBoxes ?? '?'} 个盒子）`],
+    ['头骨量测', r.headFrame ? `${r.headFrame.w}×${r.headFrame.h}×${r.headFrame.d}（${r.headFrame.source}）` : '—'],
+    ['基础模型', e.def.base || 'male_shirt'],
+  ];
+  kv.innerHTML = rows.map(([k, v]) => `<div><span>${k}</span> · <b>${v}</b></div>`).join('');
+
+  // 形态属性：每项一根条（0.8~1.3 映射到 0~100%，>1 越长；耗力/噪音/受击面积越大越吃亏 → 红条）
+  const st = deriveStats(e.def);
+  const bars = document.getElementById('bars');
+  if (st) {
+    const bar = (k, label, hint, bad) => {
+      const v = st[k];
+      const pct = Math.max(0, Math.min(100, ((v - 0.8) / 0.5) * 100));
+      return `<div class="b" title="${hint}"><i>${label}</i><span class="track"><span class="fill${bad ? ' bad' : ''}" style="width:${pct.toFixed(0)}%"></span></span><b>${v.toFixed(2)}×</b></div>`;
+    };
+    bars.innerHTML = '<div style="font-size:10px;color:var(--dim);letter-spacing:.1em;margin:12px 0 4px">形态属性（相对标准体格）</div>'
+      + bar('health', '血量', '最大生命值')
+      + bar('speed', '速度', '跑/冲刺速度')
+      + bar('stamina', '体力', '体力池大小')
+      + bar('staminaDrain', '耗力', '冲刺体力消耗（越大越费）', true)
+      + bar('carry', '负重', '背包上限')
+      + bar('melee', '近战', '近战伤害')
+      + bar('recoil', '压枪', '后坐力控制（越大越稳）')
+      + bar('noise', '脚步', '移动噪音（越大越容易被听见）', true)
+      + bar('jump', '跳跃', '起跳初速')
+      + bar('area', '受击面积', '被命中面积（越大越好打中）', true)
+      + `<div style="font-size:10px;color:var(--gold);margin-top:8px">${describeStats(st)} · 综合 ${st.power > 0 ? '+' : ''}${st.power.toFixed(2)}</div>`;
+  } else {
+    bars.innerHTML = '';
+  }
+
+  document.getElementById('pJson').textContent = JSON.stringify(e.def, null, 2);
+}
+
+function layoutCells() {
+  const w = innerWidth, h = innerHeight - 44;
+  const cw = w / COLS, ch = h / ROWS;
+  renderer.setSize(w, innerHeight, false);
+  cam.aspect = cw / ch;
+  cam.updateProjectionMatrix();
+  const cells = [...grid.children];
+  cells.forEach((c, i) => {
+    const col = i % COLS, row = Math.floor(i / COLS);
+    c.style.gridColumn = `${col + 1}`;
+    c.style.gridRow = `${row + 1}`;
+  });
+  return { cw, ch };
+}
+
+let cellSize = { cw: 1, ch: 1 };
+
+function renderPass() {
+  const w = innerWidth, h = innerHeight;
+  const top = 44;
+  const { cw, ch } = cellSize;
+  renderer.setScissorTest(true);
+  // 每格单独渲染：同一台相机，只是每格只让对应的角色可见（12 个角色都在原点）
+  for (let i = 0; i < entries.length; i += 1) {
+    const col = i % COLS, row = Math.floor(i / COLS);
+    const x = col * cw;
+    const y = h - (top + row * ch) - ch;
+    renderer.setViewport(x, y, cw, ch);
+    renderer.setScissor(x, y, cw, ch);
+    for (let k = 0; k < entries.length; k += 1) {
+      if (entries[k].char) entries[k].char.group.visible = (k === i);
+    }
+    renderer.render(scene, cam);
+  }
+  void w;
+}
+
+// ── 交互 ────────────────────────────────────────────────
+document.getElementById('bar').onclick = (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  const v = b.dataset.view;
+  if (v) {
+    state.view = v;
+    [...document.querySelectorAll('#bar button[data-view]')].forEach((x) => x.classList.toggle('on', x === b));
+    return;
+  }
+  if (b.id === 'anim') {
+    state.anim = !state.anim;
+    b.classList.toggle('on', state.anim);
+    return;
+  }
+  if (b.id === 'mix') {
+    state.mix = !state.mix;
+    b.classList.toggle('on', state.mix);
+    entries.forEach((e, i) => {
+      const t = state.mix ? { ...e.def, hair: { ...e.def.hair, style: HAIR_STYLES[i % HAIR_STYLES.length].key }, beard: { ...e.def.beard, style: BEARD_STYLES[i % BEARD_STYLES.length].key } } : e.def;
+      e.def = t;
+      if (e.char) {
+        e.applied = applyMaleTemplate(THREE, e.char.model, t);
+        e.char.model.group.visible = false;
+      }
+      fillMeta(e);
+    });
+    if (state.selected >= 0) select(state.selected);
+    return;
+  }
+  if (b.id === 'stats') {
+    const t = document.getElementById('tbl');
+    renderStatsTable();
+    t.classList.toggle('show');
+    b.classList.toggle('on', t.classList.contains('show'));
+    return;
+  }
+  if (b.id === 'json') {
+    const txt = JSON.stringify(MALE_TEMPLATES, null, 2);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([txt], { type: 'application/json' }));
+    a.download = 'male-templates.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+};
+
+function renderStatsTable() {
+  const cols = [
+    { k: 'area', label: '受击面积', bad: true },
+    { k: 'health', label: '血量' },
+    { k: 'speed', label: '速度' },
+    { k: 'stamina', label: '体力' },
+    { k: 'staminaDrain', label: '冲刺耗力', bad: true },
+    { k: 'carry', label: '负重' },
+    { k: 'melee', label: '近战' },
+    { k: 'recoil', label: '压枪' },
+    { k: 'noise', label: '脚步声', bad: true },
+    { k: 'jump', label: '跳跃' },
+  ];
+  const head = ['模板', '身高', ...cols.map((c) => c.label), '综合'].map((h) => `<th>${h}</th>`).join('');
+  const body = MALE_TEMPLATES.map((t) => {
+    const st = deriveStats(t);
+    const cells = cols.map((c) => {
+      const v = st[c.k];
+      const good = c.bad ? v < 0.99 : v > 1.01;
+      const bad = c.bad ? v > 1.01 : v < 0.99;
+      const cls = good ? 'good' : (bad ? 'bad' : '');
+      return `<td class="${cls}">${v.toFixed(2)}</td>`;
+    }).join('');
+    return `<tr><td>${t.name} <span style="color:var(--dim)">${t.id}</span></td><td>${t.height.toFixed(2)}m</td>${cells}<td class="${st.power > 0.03 ? 'good' : (st.power < -0.03 ? 'bad' : '')}">${st.power > 0 ? '+' : ''}${st.power.toFixed(2)}</td></tr>`;
+  }).join('');
+  document.getElementById('tblT').innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+}
+
+document.getElementById('close').onclick = () => {
+  document.getElementById('panel').classList.remove('show');
+  state.selected = -1;
+  for (const e of entries) e.cell.classList.remove('on');
+};
+document.getElementById('copy').onclick = async () => {
+  const e = entries[state.selected];
+  if (!e) return;
+  try { await navigator.clipboard.writeText(document.getElementById('pJson').textContent); } catch (err) { /* 无剪贴板权限就忽略 */ }
+};
+
+// 拖动旋转（所有格子一起转）
+let drag = null;
+canvas.addEventListener('pointerdown', (ev) => { drag = { x: ev.clientX, yaw: 0, moved: 0 }; });
+addEventListener('pointerup', () => { drag = null; });
+addEventListener('pointermove', (ev) => {
+  if (!drag) return;
+  const dx = ev.clientX - drag.x;
+  drag.moved += Math.abs(dx);
+  drag.yaw += dx * 0.006;
+  drag.x = ev.clientX;
+});
+canvas.addEventListener('wheel', (ev) => {
+  cam.fov = Math.min(60, Math.max(16, cam.fov + Math.sign(ev.deltaY) * 1.5));
+  cam.updateProjectionMatrix();
+}, { passive: true });
+
+addEventListener('resize', () => { cellSize = layoutCells(); });
+
+// ── 启动 ────────────────────────────────────────────────
+let t = 0;
+const clock = new THREE.Clock();
+let frames = 0;
+function loop() {
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.05, clock.getDelta());
+  if (!factory) return;
+  t += dt;
+  for (const e of entries) {
+    if (e.char) {
+      if (state.anim) e.char.mixer.update(dt);
+      // 每格角色朝相机；拖动时整体转
+      e.char.model.group.rotation.y = yawFor(state.view) + (drag ? drag.yaw : 0);
+    }
+  }
+  const dist = ZOOM > 0 ? ZOOM : 4.0;
+  const cy = CY > 0 ? CY : (dist < 2 ? 1.5 : 0.98);
+  cam.position.set(0, cy + (dist < 2 ? 0.06 : 0.14), dist);
+  cam.lookAt(0, cy, 0);
+  renderPass();
+  frames += 1;
+  if (window.__DBG__) window.__DBG__.frames = frames;
+}
+
+try {
+  cellSize = layoutCells();
+  log('载入男性角色 FBX（male_shirt / male_casual）…');
+  const loader = new AssetLoader(THREE, { base: '' });
+  factory = new CharacterFactory(THREE, loader, {
+    male_shirt: CHARACTER_MODELS.male_shirt,
+    male_casual: CHARACTER_MODELS.male_casual,
+  });
+  await factory.preload((p, k) => log(`载入 ${k} … ${Math.round(p * 100)}%`));
+  if (!factory.availableKeys.length) throw new Error('男性 FBX 模板都不可用：' + JSON.stringify(factory.report().errors));
+
+  if (ONLY) { ROWS = 1; COLS = 1; grid.style.gridTemplateColumns = '1fr'; grid.style.gridTemplateRows = '1fr'; }
+  const list = ONLY ? MALE_TEMPLATES.filter((t) => t.id === ONLY) : MALE_TEMPLATES;
+  list.forEach((def, i) => {
+    const e = makeEntry(def, i);
+    const built = buildCharacter(e);
+    if (built) {
+      e.char = built;
+      e.applied = built.res;
+      entries.push(e);
+    }
+  });
+  cellSize = layoutCells();
+  log(`已生成 ${entries.length} 款模板`);
+  boot.classList.add('gone');
+  document.getElementById('cnt').textContent = `${entries.length} 款 · 点击查看参数`;
+  window.__DBG__ = { frames: 0, errors: [], note: '' };
+  window.addEventListener('error', (ev) => window.__DBG__.errors.push(String(ev.message || ev.error)));
+  window.addEventListener('unhandledrejection', (ev) => window.__DBG__.errors.push('rejection: ' + String(ev.reason)));
+  // 给无头截图脚本用：一调用就知道现在到底是什么状态
+  document.getElementById('tbl').addEventListener('click', (ev) => {
+  if (ev.target.closest('table')) return;
+  document.getElementById('tbl').classList.remove('show');
+  document.getElementById('stats').classList.remove('on');
+});
+
+window.__DBG__.gearProbe = (i = 0) => {
+    const e = entries[i];
+    if (!e || !e.char) return null;
+    const model = e.char.model;
+    const head = model.bones.head;
+    model.group.updateMatrixWorld(true);
+    const hp = head.getWorldPosition(new THREE.Vector3()).toArray().map((n) => +n.toFixed(3));
+    const hs = head.getWorldScale(new THREE.Vector3()).toArray().map((n) => +n.toFixed(3));
+    const out = { headPos: hp, headScale: hs, gear: [] };
+    const gear = head.getObjectByName('headgear');
+    if (gear) {
+      for (const m of gear.children) {
+        m.geometry.computeBoundingBox();
+        const b = m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld);
+        out.gear.push({
+          name: m.name,
+          world: { min: b.min.toArray().map((n) => +n.toFixed(3)), max: b.max.toArray().map((n) => +n.toFixed(3)) },
+          local: { min: m.geometry.boundingBox.min.toArray().map((n) => +n.toFixed(3)), max: m.geometry.boundingBox.max.toArray().map((n) => +n.toFixed(3)) },
+          scale: m.matrixWorld.getMaxScaleOnAxis().toFixed(4),
+        });
+      }
+    }
+    return out;
+  };
+  window.__PROBE__ = () => ({
+    dbg: window.__DBG__,
+    cam: { fov: cam.fov, aspect: +cam.aspect.toFixed(3), pos: cam.position.toArray().map((n) => +n.toFixed(2)) },
+    cell: cellSize,
+    entries: entries.map((e) => ({
+      id: e.def.id, visible: !!(e.char && e.char.group.visible),
+      scale: e.char ? e.char.model.group.scale.toArray().map((n) => +n.toFixed(3)) : null,
+      children: e.char ? e.char.model.group.children.length : 0,
+      bones: e.char ? Object.keys(e.char.model.bones).length : 0,
+      gear: e.char ? (e.char.model.attachments || []).length : 0,
+    })),
+  });
+  window.__MT__ = {
+    ready: true,
+    count: entries.length,
+    entries,
+    templates: entries.map((e) => ({ id: e.def.id, height: e.def.height, report: e.applied && e.applied.report })),
+    errors: factory.report().errors,
+  };
+  document.title = 'MALE-TEMPLATES-READY';
+  if (SHOW_PANEL && entries.length) select(0);
+  loop();
+} catch (err) {
+  boot.textContent = '初始化失败：' + (err && err.stack ? err.stack : err);
+  document.title = 'MALE-TEMPLATES-FAIL';
+  console.error(err);
+}
+</script>
+</body>
+</html>

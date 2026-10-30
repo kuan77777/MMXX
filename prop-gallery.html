@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>道具包 · 食物 / 枪械 / 医疗 · 模型验收</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./js/fw3d/vendor/three.module.min.js",
+        "three/addons/": "./js/fw3d/vendor/addons/"
+      }
+    }
+  </script>
+  <style>
+    html, body { margin: 0; height: 100%; background: #10151b; color: #cfe0ee; font: 12px/1.6 ui-monospace, Consolas, monospace; overflow: hidden; }
+    #app { position: fixed; inset: 0; }
+    #hud { position: fixed; left: 0; top: 0; bottom: 0; width: 292px; padding: 10px 12px;
+      background: rgba(9,13,18,.92); border-right: 1px solid #26313d; overflow: auto; }
+    #hud h1 { font-size: 13px; margin: 0 0 6px; color: #f0d68a; }
+    #hud h2 { font-size: 11px; margin: 14px 0 4px; color: #7fc9e8; }
+    #hud table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    #hud td { padding: 1px 3px; border-bottom: 1px solid #1d2833; vertical-align: top; }
+    #hud td.n { color: #93a8bb; }
+    .ok { color: #7ed07e; } .bad { color: #ff8b8b; } .warn { color: #f0d68a; } .dim { color: #7b8c9c; }
+    #report { position: fixed; right: 12px; top: 12px; width: 440px; max-height: 46vh; overflow: auto;
+      font-size: 10.5px; background: rgba(9,13,18,.88); border: 1px solid #26313d; padding: 6px 8px; white-space: pre-wrap; margin: 0; }
+    #caption { position: fixed; right: 20px; font-size: 11px; color: #f0d68a;
+      background: rgba(9,13,18,.85); padding: 2px 8px; border: 1px solid #26313d; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="hud">
+    <h1>道具包 · 食物 / 枪械 / 医疗</h1>
+    <div id="summary">载入中…</div>
+    <h2>模型（陈列按统一大小缩放，真实尺寸 / 三角面见下）</h2>
+    <table id="modelTable"></table>
+    <h2>物品 → 模型（ITEM_MODEL）</h2>
+    <table id="itemTable"></table>
+  </div>
+  <pre id="report">loading…</pre>
+  <div id="caption">武器朝向检查 · 空格切换</div>
+
+  <script type="module">
+    // 道具模型验收台（不是游戏的一部分）：
+    //   · 用游戏同一个 AssetLoader + manifest 加载 —— 这里能过 ≈ 游戏里能过；
+    //   · 默认只陈列本次接入的三类（食物 / 枪械 / 医疗-生存），?cat=all 看全部；
+    //   · 陈列按"最长边统一 0.55m"缩放，方便看造型；真实米制尺寸在左表；
+    //   · 右下小视口检查武器朝向：枪口标记球 + 坐标轴（红 = +Z = 枪口方向），
+    //     并断言枪口确实落在包围盒 +Z 端面上（这是"枪会不会横着拿"的判据）；
+    //   · window.__PROP_GALLERY__ 是结构化报告，无头浏览器可直接读。
+    import * as THREE from 'three';
+    import { AssetLoader } from './game/assets/loader.js';
+    import { PROP_MODELS, ITEM_MODEL } from './game/assets/manifest.js';
+    import { ITEMS } from './game/items/items.js';
+    import { WEAPONS } from './game/combat/weapons.js';
+
+    const WEAPON_PROP_KEY = {
+      w_pistol_9mm: 'w_pistol_9mm', w_rifle_556: 'w_rifle_556',
+      w_shotgun_12g: 'w_shotgun_12g', w_melee_axe: 'w_melee_axe',
+    };
+    const params = new URLSearchParams(location.search);
+    const catParam = (params.get('cat') || 'food,guns,survival').split(',').map((s) => s.trim()).filter(Boolean);
+    const catOf = (key) => {
+      const url = (PROP_MODELS[key] && PROP_MODELS[key].url) || '';
+      const m = url.match(/assets\/models\/([^/]+)\//);
+      return m ? m[1] : 'other';
+    };
+    const CAT_TINT = { food: 0x2c4532, guns: 0x3a3e49, survival: 0x483134, furniture: 0x39392f, cars: 0x32374a, streets: 0x2f333a, trees: 0x2a382a, other: 0x323232 };
+    const CAT_ORDER = ['food', 'guns', 'survival', 'furniture', 'cars', 'streets', 'trees', 'other'];
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+    renderer.setSize(innerWidth, innerHeight);
+    document.getElementById('app').appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x151c24);
+    scene.fog = new THREE.Fog(0x151c24, 30, 80);
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.02, 200);
+
+    scene.add(new THREE.HemisphereLight(0xbcd8ff, 0x3a3020, 1.25));
+    const keyLight = new THREE.DirectionalLight(0xfff0d0, 1.15);
+    keyLight.position.set(6, 12, 7);
+    scene.add(keyLight);
+    const fillLight = new THREE.DirectionalLight(0x88aaff, 0.5);
+    fillLight.position.set(-8, 6, -6);
+    scene.add(fillLight);
+
+    const loader = new AssetLoader(THREE, { base: '' });
+    const baked = await loader.preloadProps(PROP_MODELS);
+    const propMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+
+    // ── 文字标签（canvas → Sprite），让陈列图可以脱离左侧表格阅读
+    function makeLabel(text, sub) {
+      const cv = document.createElement('canvas');
+      cv.width = 256; cv.height = 72;
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = 'rgba(8,12,17,0.72)';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.fillStyle = '#dbeaf6';
+      ctx.font = 'bold 26px ui-monospace, Consolas, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(text.length > 18 ? text.slice(0, 17) + '…' : text, 128, 32);
+      ctx.fillStyle = '#8fb6cf';
+      ctx.font = '20px ui-monospace, Consolas, monospace';
+      ctx.fillText(sub, 128, 60);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+      sprite.scale.set(0.72, 0.2, 1);
+      return sprite;
+    }
+
+    // ── 陈列：按类别一行行摆，每类一块地板
+    const shownKeys = Object.keys(PROP_MODELS).filter((k) => baked.has(k) && (catParam.includes('all') || catParam.includes(catOf(k))));
+    const byCat = new Map();
+    for (const k of shownKeys) {
+      const c = catOf(k);
+      if (!byCat.has(c)) byCat.set(c, []);
+      byCat.get(c).push(k);
+    }
+    const cats = [...byCat.keys()].sort((a, b) => CAT_ORDER.indexOf(a) - CAT_ORDER.indexOf(b));
+
+    const DISPLAY = 0.55;         // 陈列统一最长边（米）
+    const SPACING = 1.05;
+    const ROW_GAP = 0.9;
+    const propGroup = new THREE.Group();
+    const floorGroup = new THREE.Group();
+    scene.add(propGroup, floorGroup);
+    const rows = [];
+    let rowZ = 0;
+
+    for (const cat of cats) {
+      const keys = byCat.get(cat).sort((a, b) => a.localeCompare(b));
+      const perRow = Math.min(8, keys.length);
+      const lines = Math.ceil(keys.length / perRow);
+      keys.forEach((k, i) => {
+        const entry = baked.get(k);
+        const mesh = new THREE.Mesh(entry.geometry, propMat);
+        const longest = Math.max(entry.width, entry.height, entry.depth) || 1;
+        const s = DISPLAY / longest;
+        const line = Math.floor(i / perRow);
+        const col = i % perRow;
+        const inLine = Math.min(perRow, keys.length - line * perRow);
+        mesh.position.set((col - (inLine - 1) / 2) * SPACING, 0.02, rowZ + line * 0.86);
+        mesh.rotation.y = 0.6;
+        mesh.scale.setScalar(s);
+        propGroup.add(mesh);
+
+        const label = makeLabel(k, `${entry.height.toFixed(2)}×${entry.width.toFixed(2)}×${entry.depth.toFixed(2)}m`);
+        label.position.set(mesh.position.x, 0.78, mesh.position.z);
+        propGroup.add(label);
+
+        rows.push({
+          key: k, cat, url: PROP_MODELS[k].url,
+          height: +entry.height.toFixed(3), width: +entry.width.toFixed(3), depth: +entry.depth.toFixed(3),
+          tris: entry.geometry.getAttribute('position').count / 3,
+          fit: PROP_MODELS[k].fit,
+          itemIds: Object.keys(ITEM_MODEL).filter((id) => ITEM_MODEL[id] === k),
+          weaponId: Object.keys(WEAPON_PROP_KEY).find((w) => WEAPON_PROP_KEY[w] === k) || null,
+        });
+      });
+      const w = Math.min(8, keys.length) * SPACING + 0.5;
+      const d = lines * 0.86 + 0.7;
+      const pad = new THREE.Mesh(
+        new THREE.BoxGeometry(w, 0.05, d),
+        new THREE.MeshLambertMaterial({ color: CAT_TINT[cat] || 0x323232 }),
+      );
+      pad.position.set(0, -0.02, rowZ + (d - 0.7) / 2 - 0.2);
+      floorGroup.add(pad);
+      rowZ += d + ROW_GAP;
+    }
+
+    // 自动取景：按整个陈列的包围盒摆相机（换个类别组合也不用手调）
+    const bounds = new THREE.Box3();
+    for (const o of propGroup.children) if (o.isMesh) bounds.expandByObject(o);
+    if (bounds.isEmpty()) bounds.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(4, 1, 4));
+    const c = bounds.getCenter(new THREE.Vector3());
+    const size = bounds.getSize(new THREE.Vector3());
+    const span = Math.max(size.x, size.z) * 1.15 + 1.5;
+    camera.position.set(c.x, c.y + span * 0.62, c.z + span * 0.95);
+    camera.lookAt(c.x, c.y + 0.15, c.z);
+
+    // ── 武器朝向检查（右下小视口）
+    const vmScene = new THREE.Scene();
+    vmScene.background = new THREE.Color(0x0c1218);
+    vmScene.add(new THREE.HemisphereLight(0xcfe4ff, 0x30281c, 1.4));
+    const vmKey = new THREE.DirectionalLight(0xfff2d8, 1.15);
+    vmKey.position.set(1.5, 2.5, 2.5);
+    vmScene.add(vmKey);
+    const vmCamera = new THREE.PerspectiveCamera(40, 1.6, 0.01, 20);
+    const vmGroup = new THREE.Group();
+    vmScene.add(vmGroup);
+    const weaponKeys = Object.keys(WEAPON_PROP_KEY).filter((w) => baked.has(WEAPON_PROP_KEY[w]));
+    let vmIndex = 0;
+    const checks = [];
+
+    function showViewmodel(i) {
+      vmGroup.clear();
+      const wid = weaponKeys[i];
+      if (!wid) return;
+      const entry = baked.get(WEAPON_PROP_KEY[wid]);
+      const mesh = new THREE.Mesh(entry.geometry, propMat);
+      vmGroup.add(mesh);
+      const box = mesh.geometry.boundingBox;
+      const h = box.max.y - box.min.y;
+      const isMelee = WEAPONS[wid] && WEAPONS[wid].type === 'melee';
+      // 与 game.js _weaponMesh 同一条公式
+      const muzzlePos = new THREE.Vector3(0, box.min.y + h * (isMelee ? 1 : 0.72), box.max.z);
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(Math.max(0.006, Math.max(entry.width, entry.height, entry.depth) * 0.03), 12, 8),
+        new THREE.MeshBasicMaterial({ color: 0xff4b3a }),
+      );
+      marker.position.copy(muzzlePos);
+      vmGroup.add(marker);
+      const axes = new THREE.AxesHelper(Math.max(0.12, entry.depth * 0.5));
+      axes.position.copy(muzzlePos);
+      vmGroup.add(axes);
+      // 枪身中轴参考线：从握把到枪口
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, box.min.y + h * 0.3, box.min.z),
+        new THREE.Vector3(0, box.min.y + h * 0.3, box.max.z),
+      ]);
+      vmGroup.add(new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x5ad0ff })));
+
+      const dist = Math.max(0.4, Math.max(entry.width, entry.height, entry.depth) * 1.7);
+      vmCamera.position.set(dist * 0.72, dist * 0.55, dist * 0.95);
+      vmCamera.lookAt(0, h * 0.45, 0);
+
+      const muzzleAtTip = Math.abs(muzzlePos.z - box.max.z) < 1e-6;
+      checks.push({ weaponId: wid, muzzleAtTipZ: muzzleAtTip, muzzle: { x: +muzzlePos.x.toFixed(3), y: +muzzlePos.y.toFixed(3), z: +muzzlePos.z.toFixed(3) }, tipZ: +box.max.z.toFixed(3) });
+
+      const el = document.getElementById('vmLabel');
+      if (el) el.textContent = `${WEAPONS[wid] ? WEAPONS[wid].name : wid}`;
+      window.__VM_CHECK__ = { weaponId: wid, muzzle: { x: +muzzlePos.x.toFixed(3), y: +muzzlePos.y.toFixed(3), z: +muzzlePos.z.toFixed(3) }, boxMaxZ: +box.max.z.toFixed(3), muzzleAtTipZ: muzzleAtTip };
+    }
+    addEventListener('keydown', (e) => {
+      if (e.code !== 'Space') return;
+      vmIndex = (vmIndex + 1) % Math.max(1, weaponKeys.length);
+      showViewmodel(vmIndex);
+    });
+
+    // ── HUD / 报告
+    document.getElementById('modelTable').innerHTML = rows.map((r) =>
+      `<tr><td class="n">${r.key}</td><td>${r.height.toFixed(2)}×${r.width.toFixed(2)}×${r.depth.toFixed(2)}</td><td class="n">${r.tris}</td></tr>`).join('');
+    document.getElementById('itemTable').innerHTML = Object.entries(ITEM_MODEL).map(([itemId, modelKey]) => {
+      const ok = baked.has(modelKey);
+      const def = ITEMS[itemId];
+      return `<tr><td class="n">${itemId}</td><td class="${ok ? 'ok' : 'bad'}">${modelKey}${ok ? '' : ' ✗'}</td><td class="n">${def ? def.name : '<span class="bad">无此物品</span>'}</td></tr>`;
+    }).join('');
+
+    const unmapped = Object.keys(ITEMS).filter((id) => !ITEM_MODEL[id]);
+    const missingKeys = Object.keys(PROP_MODELS).filter((k) => !baked.has(k));
+    const badItems = Object.entries(ITEM_MODEL).filter(([, m]) => !baked.has(m));
+    window.__PROP_GALLERY__ = {
+      ready: true, shown: shownKeys.length, total: Object.keys(PROP_MODELS).length,
+      models: rows, weaponKeys, missingModels: missingKeys,
+      itemModelErrors: badItems.map(([i, m]) => `${i}→${m}`),
+      unmappedItems: unmapped, loadErrors: loader.errors, muzzleChecks: checks,
+    };
+
+    document.getElementById('summary').innerHTML = [
+      `<div class="${missingKeys.length ? 'bad' : 'ok'}">陈列 ${shownKeys.length} 个 / 清单 ${Object.keys(PROP_MODELS).length} 个，载入失败 ${missingKeys.length}</div>`,
+      `<div class="${badItems.length ? 'bad' : 'ok'}">物品映射错误 ${badItems.length}</div>`,
+      `<div class="warn">没有模型的物品（${unmapped.length}）：${unmapped.join(', ')}</div>`,
+      `<div class="dim">武器朝向检查：<span id="vmLabel"></span>（空格切换）</div>`,
+      `<div class="dim">陈列三角面合计 ${rows.reduce((s, r) => s + r.tris, 0)}</div>`,
+      `<div class="dim">URL 参数：?cat=all 看全部类别</div>`,
+    ].join('');
+
+    showViewmodel(0);
+    document.getElementById('report').textContent = [
+      `PROPS ${shownKeys.length}/${Object.keys(PROP_MODELS).length}  ERRORS ${loader.errors.length}`,
+      ...loader.errors.map((e) => `  ✗ ${e.url}: ${e.error}`),
+      `MISSING ${missingKeys.length ? missingKeys.join(',') : '-'}`,
+      `UNMAPPED_ITEMS ${unmapped.length ? unmapped.join(',') : '-'}`,
+      `MUZZLE ${checks.map((c) => `${c.weaponId}:${c.muzzleAtTipZ ? 'OK' : 'BAD'}`).join(' ')}`,
+      ...rows.map((r) => `  ${(r.cat + '/' + r.key).padEnd(26)} ${r.height.toFixed(2)}x${r.width.toFixed(2)}x${r.depth.toFixed(2)}m tris=${r.tris}`),
+    ].join('\n');
+
+    // 右下小视口：主场景画完后用 scissor 再画一台相机
+    const INSET_MAX = 430;
+    function drawInset() {
+      const w = Math.min(INSET_MAX, Math.round(innerWidth * 0.32));
+      const h = Math.round(w * 0.66);
+      const x = innerWidth - w - 14;
+      const y = 18;
+      vmCamera.aspect = w / h;
+      vmCamera.updateProjectionMatrix();
+      renderer.setScissorTest(true);
+      renderer.setViewport(x, y, w, h);
+      renderer.setScissor(x, y, w, h);
+      renderer.clear(true, true, true);
+      renderer.render(vmScene, vmCamera);
+      renderer.setScissorTest(false);
+      renderer.setViewport(0, 0, innerWidth, innerHeight);
+      const cap = document.getElementById('caption');
+      if (cap) { cap.style.right = '20px'; cap.style.bottom = `${y + h + 6}px`; }
+    }
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+    renderer.setAnimationLoop(() => {
+      renderer.render(scene, camera);
+      drawInset();
+    });
+  </script>
+</body>
+</html>
