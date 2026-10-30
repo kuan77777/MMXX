@@ -1,0 +1,7 @@
+{
+  "name": "fw-deadworld",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "低多边形开放世界僵尸生存：复用原有足球数据层（clubs/players/colors）"
+}
